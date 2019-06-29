@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28803.352
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cerebro", "Cerebro.csproj", "{CA93D86C-BE0A-4B86-A635-8AA149F2B247}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CA93D86C-BE0A-4B86-A635-8AA149F2B247}.Debug|x64.ActiveCfg = Debug|x64
+		{CA93D86C-BE0A-4B86-A635-8AA149F2B247}.Debug|x64.Build.0 = Debug|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {75CF2EE3-B2B8-4F0B-A02C-EE480DCAB2CD}
+	EndGlobalSection
+EndGlobal
