@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using IngameScript.MDK;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
 using SpaceEngineers.Game.ModAPI.Ingame;
@@ -10,19 +9,12 @@ using VRage;
 using VRage.Game;
 using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ModAPI.Ingame.Utilities;
-using VRage.Network;
 using VRageMath;
 
 namespace IngameScript
 {
     internal sealed class Program : MyGridProgram
     {
-        public Program()
-        {
-            Runtime.UpdateFrequency = UpdateFrequency.Update10;
-            ScriptInitiate();
-        }
-
         public enum Pilot
         {
             Disabled,
@@ -31,6 +23,11 @@ namespace IngameScript
             Takeoff
         }
 
+        public Program()
+        {
+            Runtime.UpdateFrequency = UpdateFrequency.Update10;
+            ScriptInitiate();
+        }
 
 
         private void Main(string argument)
@@ -46,6 +43,7 @@ namespace IngameScript
                 status.Append("AI Paused ");
                 return;
             }
+
             CountTicks();
             if (GridFlags() || _combatFlag)
                 _alert = _combatFlag ? AlertState.Combat : AlertState.Error;
@@ -65,7 +63,10 @@ namespace IngameScript
 
         private void SystemsCheck(int i)
         {
-            Runtime.UpdateFrequency = _alert == AlertState.Clear && _autoPilot == Pilot.Disabled? UpdateFrequency.Update100 : UpdateFrequency.Update10;
+            var opt2 = _isStatic ? UpdateFrequency.Update10 : UpdateFrequency.Update1;
+            Runtime.UpdateFrequency = _alert == AlertState.Clear && _autoPilot == Pilot.Disabled
+                ? UpdateFrequency.Update10
+                : opt2;
             _turretControl = _turrets.Count > 0;
             _isStatic = Me.CubeGrid.IsStatic;
             _hive = _isStatic && _hasAntenna;
@@ -212,7 +213,6 @@ namespace IngameScript
             var t = st.Split(' ');
             while (true)
             {
-                
                 if (StringContains(t[0], "pause"))
                 {
                     Runtime.UpdateFrequency = UpdateFrequency.None;
@@ -220,32 +220,28 @@ namespace IngameScript
                     return;
                 }
 
-                if (StringContains(t[0], "start"))
-                {
-                    Runtime.UpdateFrequency = UpdateFrequency.Update10;
-                }
+                if (StringContains(t[0], "start")) Runtime.UpdateFrequency = UpdateFrequency.Update10;
 
                 if (StringContains(t[0], "takeoff"))
                 {
-                    OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                    OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
 
                     if (_autoNavigate && _remoteControl != null) _autoPilot = Pilot.Takeoff;
                 }
 
                 if (StringContains(t[0], "cancel"))
-                {
                     switch (t[1].ToLower())
                     {
                         case "land":
-                            OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                            OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                             _autoPilot = Pilot.Disabled;
                             break;
                         case "takeoff":
-                            OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                            OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                             _autoPilot = Pilot.Disabled;
                             break;
                         case "cruise":
-                            OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                            OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                             _cruiseHeight = 0;
                             _cruiseSpeed = 0;
                             _autoPilot = Pilot.Disabled;
@@ -254,26 +250,32 @@ namespace IngameScript
                             _autoPilot = Pilot.Disabled;
                             foreach (var remote in _remotes)
                             {
-                                if (Closed(remote))continue;
+                                if (Closed(remote)) continue;
                                 remote.SetAutoPilotEnabled(false);
                             }
+
+                            foreach (var controller in _cockpits)
+                            {
+                                if (Closed(controller)) continue;
+                                controller.DampenersOverride = true;
+                            }
+
+                            OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                             break;
                         default:
-                            OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                            OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                             break;
                     }
 
-                }
-
                 if (StringContains(t[0], "land"))
                 {
-                    OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                    OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                     _autoPilot = _inGravity ? Pilot.Land : Pilot.Disabled;
                 }
 
                 if (StringContains(t[0], "cruise"))
                 {
-                    OverrideThrust(false,Vector3D.Zero, 0,0,0);
+                    OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                     Vector3D x;
                     switch (t[2].ToLower())
                     {
@@ -292,14 +294,12 @@ namespace IngameScript
                         default:
                             x = _remoteControl.WorldMatrix.Forward;
                             break;
-
                     }
 
                     _autoPilot = Pilot.Cruise;
                     _cruiseDirection = x;
-                   _cruiseHeight = _inGravity?double.Parse(t[2]):0;
+                    _cruiseHeight = _inGravity ? double.Parse(t[2]) : 0;
                     _cruiseSpeed = double.Parse(t[3]);
-
                 }
 
                 if (StringContains(t[0], "cyclemenu+"))
@@ -361,24 +361,6 @@ namespace IngameScript
         {
             _counter = _counter < 12 ? _counter += 1 : 0;
         }
-
-        #region Drone Control
-        //--------------Command Broadcasts---------------
-
-        //Command to order drones to follow
-
-        private void FollowMe()
-        {
-            if (_hive && _myAntenna.IsFunctional) IGC.SendBroadcastMessage($"Follow {Me.Position}", _myAntenna.Radius);
-        }
-
-        private void AttackTarget()
-        {
-            if (_hasAntenna && _myAntenna.IsFunctional)
-                IGC.SendBroadcastMessage($"Attack {_myTarget.Position}", _myAntenna.Radius);
-        }
-
-        #endregion
 
         //---------------Data Display--------------------
 
@@ -589,6 +571,7 @@ namespace IngameScript
                     light.Enabled = !_combatFlag;
                     continue;
                 }
+
                 SetLight(light, color, _alert > 0);
             }
         }
@@ -644,7 +627,7 @@ namespace IngameScript
             }
         }
 
-        
+
         //handle batteries
         private void BatteryCheck()
         {
@@ -660,6 +643,7 @@ namespace IngameScript
                     battery.ChargeMode = ChargeMode.Auto;
                     continue;
                 }
+
                 if (StringContains(battery.CustomName, "backup") && !_lowBatteries.Contains(battery))
                 {
                     if (battery.CurrentStoredPower / battery.MaxStoredPower < 0.5f)
@@ -671,9 +655,10 @@ namespace IngameScript
 
                 batteryMax += battery.MaxOutput;
                 batteryPower += battery.CurrentOutput;
-                if (!_lowBatteries.Contains(battery) && 
+                if (!_lowBatteries.Contains(battery) &&
                     (battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint ||
-                    (ShipConnected() && _rechargeWhenConnected && battery.CurrentStoredPower / battery.MaxStoredPower <= 0.99)))
+                     ShipConnected() && _rechargeWhenConnected &&
+                     battery.CurrentStoredPower / battery.MaxStoredPower <= 0.99))
                 {
                     _lowBatteries.Add(battery);
                     battery.ChargeMode = ChargeMode.Recharge;
@@ -683,16 +668,13 @@ namespace IngameScript
                 if (_lowBatteries.Contains(battery))
                 {
                     if (battery.CurrentStoredPower / battery.MaxStoredPower < 1f)
-                    {
                         battery.ChargeMode = ChargeMode.Recharge;
-                    }
 
                     else
-                    {
                         _lowBatteries.Remove(battery);
-                    }
                     continue;
                 }
+
                 battery.ChargeMode = _isStatic ? ChargeMode.Discharge : ChargeMode.Auto;
             }
 
@@ -710,12 +692,8 @@ namespace IngameScript
         private bool ShipConnected()
         {
             foreach (var connector in _connectors)
-            {
                 if (connector.Status == MyShipConnectorStatus.Connected)
-                {
                     return connector.Status == MyShipConnectorStatus.Connected;
-                }
-            }
 
             return false;
         }
@@ -836,15 +814,10 @@ namespace IngameScript
                 }
 
                 tank.Stockpile = false;
-                if (tank.FilledRatio >= _tankFillLevel)
-                {
-                    tank.ShowOnHUD = false;
-                    continue;
-                }
+                if (tank.FilledRatio >= _tankFillLevel) continue;
 
                 lowTanks += 1;
                 tank.Enabled = true;
-                tank.ShowOnHUD = true;
             }
 
             _tankRefill = lowTanks > 0;
@@ -881,245 +854,6 @@ namespace IngameScript
             }
         }
 
-        #region Navigation
-
-        private void CheckNavigation()
-        {
-
-            switch (_autoPilot)
-            {
-                case Pilot.Disabled:
-                    Runtime.UpdateFrequency = UpdateFrequency.Update10;
-                    break;
-                case Pilot.Cruise:
-                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
-                    LevelShip(false);
-                    Cruise(_cruiseDirection,_cruiseHeight,_cruiseSpeed);
-                    if (_counter == 10)OverrideThrust(false,_remoteControl.WorldMatrix.Down,1,_currentSpeed);
-
-                    return;
-                case Pilot.Land:
-                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
-                    LevelShip(false);
-                    Land();
-                    if (!(_currentHeight < 20) || !(_currentSpeed < 1)) return;
-                    OverrideThrust(false,Vector3D.Zero,0,0);
-                    _autoPilot = Pilot.Disabled;
-                    return;
-                case Pilot.Takeoff:
-                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
-                    LevelShip(false);
-                    TakeOff();
-                    return;
-                default:
-                    Runtime.UpdateFrequency = UpdateFrequency.Update10;
-                    return;
-            }
-            if (!_combatFlag)
-                LevelShip();
-            if (_combatFlag && !CheckPlayer() && !_myTarget.IsEmpty() && !ShipConnected() && !_inGravity)
-            {
-                if (Vector3D.Distance(_myTarget.Position,_remoteControl.GetPosition()) > 600)
-                    SetDestination(_myTarget.Position, true, 50);
-                else _remoteControl.SetAutoPilotEnabled(false);
-
-            }
-            else if (CheckPlayer())_remoteControl.SetAutoPilotEnabled(false);
-        }
-
-        private void SetDestination(Vector3D destination, bool enableCollision, float speed)
-        {
-            _remoteControl.ClearWaypoints();
-            _remoteControl.FlightMode = FlightMode.OneWay;
-            _remoteControl.SpeedLimit = speed;
-            _remoteControl.AddWaypoint(destination, "AutoPilot");
-            _remoteControl.Direction = Base6Directions.Direction.Forward;
-            _remoteControl.SetCollisionAvoidance(enableCollision);
-            _remoteControl.SetAutoPilotEnabled(true);
-
-        }
-
-        private void Cruise(Vector3D dir, double height, double speed = 100)
-        {
-            _remoteControl.TryGetPlanetElevation(MyPlanetElevation.Surface, out _currentHeight);
-            _thrust = _remoteControl.GetShipVelocities().LinearVelocity.Y < speed
-                ? Math.Min(_thrust += 0.1f, 1f)
-                : Math.Max(_thrust -= 0.1f, 0);
-            if (_inGravity && _currentHeight > (height + 1000))
-            {
-                OverrideThrust(true,_remoteControl.WorldMatrix.Down,0.01f,_currentSpeed,25);
-                return;
-            }
-
-            if (_inGravity && _currentHeight <= Math.Max((height - 500), 2500))
-            {
-                OverrideThrust(true,_remoteControl.WorldMatrix.Up,1,_currentSpeed,50);
-                return;
-            }
-            OverrideThrust(true,dir,1,_currentSpeed,speed+10);
-        }
-
-        private void TakeOff()
-        {
-            var x = (_remoteControl.GetShipVelocities().LinearVelocity.Y +
-                     _remoteControl.GetShipVelocities().LinearVelocity.Z);
-            if (_currentHeight <= _landingBrakeHeight) _thrust = 1f;
-            else
-            {
-                _thrust = x < 90 && _currentSpeed < 90
-                    ? Math.Min(_thrust += 0.15f, 1)
-                    : Math.Max(_thrust -= 0.05f, 0);
-            }
-            OverrideThrust(_inGravity && x < 100, _remoteControl.WorldMatrix.Up, _thrust, _currentSpeed);
-            _autoPilot = _inGravity? Pilot.Takeoff:Pilot.Disabled;
-        }
-
-        private void Land()
-        {
-            foreach (var remote in _remotes)
-            {
-                if (Closed(remote))continue;
-                remote.SetAutoPilotEnabled(false);
-            }
-            LevelShip(false);
-            if (_currentHeight > _landingBrakeHeight)
-            {
-                OverrideThrust(true, _remoteControl.WorldMatrix.Up, 0.001f, _currentSpeed);
-                return;
-            }
-
-            _thrust =  (_remoteControl.GetShipVelocities().LinearVelocity.Y + _remoteControl.GetShipVelocities().LinearVelocity.Z) < 0 
-                       && _currentSpeed > 5
-                ? Math.Min(_thrust += 0.15f, 1f)
-                : Math.Max(_thrust -= 0.5f, 0.001f);
-            OverrideThrust(true, _remoteControl.WorldMatrix.Up,
-                _thrust, _remoteControl.GetShipSpeed(),5);
-        }
-
-
-        private void OverrideThrust(bool enableOverride, Vector3D direction, float thrustModifier, double currentSpeed = 100, double maximumSpeed = 110){
-	
-            var thrustList = new List<IMyThrust>();
-            GridTerminalSystem.GetBlocksOfType(thrustList);
-	
-            foreach(var thruster in thrustList){
-		
-		
-                if(thruster == null || !thruster.IsFunctional){
-			
-                    continue;
-			
-                }
-		
-                if(enableOverride == true && currentSpeed < maximumSpeed){
-			
-                    if(thruster.WorldMatrix.Forward == direction * -1){
-				
-                        thruster.Enabled = true;
-                        thruster.ThrustOverridePercentage = thrustModifier;
-			
-                    }
-			
-                    if(thruster.WorldMatrix.Forward == direction){
-			
-                        thruster.Enabled = false;
-			
-                    }
-			
-                }else{
-			
-                    thruster.Enabled = true;
-                    thruster.SetValueFloat("Override", 0);
-			
-                }
-		
-            }
-	
-        }
-
-        private void LevelShip(bool checkPlayer = true)
-        {
-
-            if (checkPlayer && CheckPlayer())
-            {
-                foreach (var gyro in _gyros)
-                {
-                    gyro.GyroOverride = false;
-                }
-                return;
-            }
-            var gravity = _remoteControl.GetNaturalGravity();
-            var up = -gravity;
-            var left = Vector3D.Cross(up, _remoteControl.WorldMatrix.Forward);
-            var forward = Vector3D.Cross(left, up);
-            var localUpVector = Vector3D.Rotate(up, MatrixD.Transpose(_remoteControl.WorldMatrix));
-            var flattenedUpVector = new Vector3D(localUpVector.X, localUpVector.Y, 0);
-                foreach (var gyro in _gyros)
-                {
-                    if (gyro.WorldMatrix.Forward != _remoteControl.WorldMatrix.Forward && gyro.WorldMatrix.Right != _remoteControl.WorldMatrix.Right)
-                    {
-                        _autoNavigate = false;
-                        continue;
-                    }
-
-                    var roll = (float) VectorMath.AngleBetween(flattenedUpVector, Vector3D.Up) * Math.Sign(Vector3D.Dot(Vector3D.Right, flattenedUpVector));
-                    var pitch = (float) VectorMath.AngleBetween(forward, _remoteControl.WorldMatrix.Forward) * Math.Sign(Vector3D.Dot(up, _remoteControl.WorldMatrix.Forward));
-                    _pitchDelay = _inGravity && (Math.Abs(pitch) >= 0.1f || Math.Abs(roll) >=0.1f) ? Math.Min(_pitchDelay += 5, 100) : Math.Max(_pitchDelay -= 1,0);
-                    if (_pitchDelay >= 1)
-                    {
-                        gyro.Enabled = true;
-                        gyro.GyroOverride = true;
-                        gyro.Yaw = 0f;
-                        gyro.Pitch = 0f;
-                        gyro.Roll = 0f;
-
-                        if (pitch > 0.05f)
-                        {
-                            gyro.Pitch = 0.1f;
-                        }
-
-                        if (pitch < -0.05f)
-                        {
-                            gyro.Pitch = -0.1f;
-                        }
-                        if (Math.Abs(roll) > 1.8f || roll > 0.1f)
-                        {
-                            gyro.Roll = 0.05f;
-                        }
-
-                        if (roll < 0.05f)
-                        {
-                            gyro.Roll = -0.05f;
-                        }
-
-                        Runtime.UpdateFrequency = UpdateFrequency.Update1;
-
-                    }
-                    else
-                    {
-                        gyro.GyroOverride = false;
-                        gyro.Pitch = 0f;
-                        gyro.Roll = 0f;
-                        gyro.Yaw = 0f;
-
-                    }
-
-            }
-        }
-        private bool CheckPlayer()
-        {
-            foreach (var cockpit in _cockpits)
-            {
-                if (SkipBlock(cockpit) || !cockpit.IsUnderControl)
-                    continue;
-                return cockpit.IsUnderControl;
-            }
-
-            return false;
-        }
-
-        #endregion
-
         //---------------combat--------------------------
 
         //manage turrets
@@ -1139,8 +873,7 @@ namespace IngameScript
                 }
 
                 //check if Turrets custom data already has a number and assign one if it doesnt
-                int tryNumber;
-                if (string.IsNullOrEmpty(turret.CustomData) || !int.TryParse(turret.CustomData, out tryNumber) ||
+                if (string.IsNullOrEmpty(turret.CustomData) || !int.TryParse(turret.CustomData, out _) ||
                     int.Parse(turret.CustomData) > DefaultAggression * 5)
                     turret.CustomData = turret is IMyLargeInteriorTurret
                         ? (_aggression - 1).ToString()
@@ -1154,6 +887,7 @@ namespace IngameScript
                         turret.CustomData = (DefaultAggression - 1).ToString();
                     continue;
                 }
+
                 if (StringContains(turret.CustomName, "antimissile"))
                 {
                     if (int.Parse(turret.CustomData) > DefaultAggression + 1)
@@ -1185,8 +919,6 @@ namespace IngameScript
                 turret.SetTarget(_myTarget.Position);
             }
 
-            if (_isStatic || _remotes.Count == 0) return;
-            //aim ship at target
         }
 
         private void CheckConnectors()
@@ -1241,7 +973,7 @@ namespace IngameScript
             //clear lists first
             _gyros.Clear();
             _productionBlocks.Clear();
-            if (_reactorFuel.Keys.Count > 10)_reactorFuel.Clear();
+            if (_reactorFuel.Keys.Count > 10) _reactorFuel.Clear();
             _refineries.Clear();
             _assemblers.Clear();
             _gravGens.Clear();
@@ -1303,8 +1035,10 @@ namespace IngameScript
                     case IMyReactor reactor:
                     {
                         _reactors.Add(reactor);
-                        if (reactor.GetInventory().ItemCount > 0 && !_reactorFuel.ContainsKey(reactor.BlockDefinition.SubtypeId))
-                            _reactorFuel.Add(reactor.BlockDefinition.SubtypeId, reactor.GetInventory(0).GetItemAt(0).Value.Type);
+                        if (reactor.GetInventory().ItemCount > 0 &&
+                            !_reactorFuel.ContainsKey(reactor.BlockDefinition.SubtypeId))
+                            _reactorFuel.Add(reactor.BlockDefinition.SubtypeId,
+                                reactor.GetInventory(0).GetItemAt(0).Value.Type);
                         break;
                     }
 
@@ -1613,6 +1347,253 @@ namespace IngameScript
             Combat
         }
 
+        #region Vector math
+
+        public static class VectorMath
+        {
+            /// <summary>
+            ///     Computes angle between 2 vectors
+            /// </summary>
+            public static double AngleBetween(Vector3D a, Vector3D b) //returns radians
+            {
+                if (Vector3D.IsZero(a) || Vector3D.IsZero(b))
+                    return 0;
+                return Math.Acos(MathHelper.Clamp(a.Dot(b) / Math.Sqrt(a.LengthSquared() * b.LengthSquared()), -1, 1));
+            }
+        }
+
+        #endregion
+
+        #region Drone Control
+
+        //--------------Command Broadcasts---------------
+
+        //Command to order drones to follow
+
+        private void FollowMe()
+        {
+            if (_hive && _myAntenna.IsFunctional) IGC.SendBroadcastMessage($"Follow {Me.Position}", _myAntenna.Radius);
+        }
+
+        private void AttackTarget()
+        {
+            if (_hasAntenna && _myAntenna.IsFunctional)
+                IGC.SendBroadcastMessage($"Attack {_myTarget.Position}", _myAntenna.Radius);
+        }
+
+        #endregion
+
+        #region Navigation
+
+        private void CheckNavigation()
+        {
+            switch (_autoPilot)
+            {
+                case Pilot.Disabled:
+                    break;
+                case Pilot.Cruise:
+                    LevelShip(false);
+                    Cruise(_cruiseDirection, _cruiseHeight, _cruiseSpeed);
+                    if (_counter == 10) OverrideThrust(false, _remoteControl.WorldMatrix.Down, 1, _currentSpeed);
+
+                    return;
+                case Pilot.Land:
+                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                    LevelShip(false);
+                    Land();
+                    if (!(_currentHeight < 20) || !(_currentSpeed < 1)) return;
+                    OverrideThrust(false, Vector3D.Zero, 0, 0);
+                    _autoPilot = Pilot.Disabled;
+                    return;
+                case Pilot.Takeoff:
+                    LevelShip(false);
+                    TakeOff();
+                    return;
+                default:
+                    return;
+            }
+
+            if (!_combatFlag)
+                LevelShip();
+            if (_combatFlag && !CheckPlayer() && !_myTarget.IsEmpty() && !ShipConnected() && !_inGravity)
+            {
+                if (Vector3D.Distance(_myTarget.Position, _remoteControl.GetPosition()) > 600)
+                    SetDestination(_myTarget.Position, true, 50);
+                else _remoteControl.SetAutoPilotEnabled(false);
+            }
+            else if (CheckPlayer())
+            {
+                _remoteControl.SetAutoPilotEnabled(false);
+            }
+        }
+
+        private void SetDestination(Vector3D destination, bool enableCollision, float speed)
+        {
+            _remoteControl.ClearWaypoints();
+            _remoteControl.FlightMode = FlightMode.OneWay;
+            _remoteControl.SpeedLimit = speed;
+            _remoteControl.AddWaypoint(destination, "AutoPilot");
+            _remoteControl.Direction = Base6Directions.Direction.Forward;
+            _remoteControl.SetCollisionAvoidance(enableCollision);
+            _remoteControl.SetAutoPilotEnabled(true);
+        }
+
+        private void Cruise(Vector3D dir, double height, double speed = 100)
+        {
+            _remoteControl.TryGetPlanetElevation(MyPlanetElevation.Surface, out _currentHeight);
+            _thrust = _remoteControl.GetShipVelocities().LinearVelocity.Y < speed
+                ? Math.Min(_thrust += 0.1f, 1f)
+                : Math.Max(_thrust -= 0.1f, 0);
+            var x = Math.Max(height - 500, 2500);
+            if (_inGravity && _currentHeight > height + 1000)
+            {
+                OverrideThrust(true, _remoteControl.WorldMatrix.Down, 0.01f, _currentSpeed, 50);
+                return;
+            }
+
+            if (_inGravity && _currentHeight < x)
+            {
+                OverrideThrust(true, _remoteControl.WorldMatrix.Up, 1, _currentSpeed, 25);
+                return;
+            }
+
+            OverrideThrust(true, dir, 1, _currentSpeed, speed + 10);
+        }
+
+        private void TakeOff()
+        {
+            var x = _remoteControl.GetShipVelocities().LinearVelocity.Y +
+                    _remoteControl.GetShipVelocities().LinearVelocity.Z;
+            if (_currentHeight <= _landingBrakeHeight) _thrust = 1f;
+            else
+                _thrust = x < 80 && _currentSpeed < 90
+                    ? Math.Min(_thrust += 0.15f, 1)
+                    : Math.Max(_thrust -= 0.05f, 0);
+            OverrideThrust(_inGravity && x < 100, _remoteControl.WorldMatrix.Up, _thrust, _currentSpeed);
+            _autoPilot = _inGravity ? Pilot.Takeoff : Pilot.Disabled;
+        }
+
+        private void Land()
+        {
+            foreach (var remote in _remotes)
+            {
+                if (Closed(remote)) continue;
+                remote.SetAutoPilotEnabled(false);
+            }
+
+            if (_currentHeight > _landingBrakeHeight)
+            {
+                OverrideThrust(true, _remoteControl.WorldMatrix.Down, 0.001f, _currentSpeed);
+                return;
+            }
+
+            _thrust = _remoteControl.GetShipVelocities().LinearVelocity.Y +
+                      _remoteControl.GetShipVelocities().LinearVelocity.Z < 0
+                      && _currentSpeed > 5
+                ? Math.Min(_thrust += 0.15f, 1f)
+                : Math.Max(_thrust -= 0.5f, 0.001f);
+            OverrideThrust(true, _remoteControl.WorldMatrix.Up,
+                _thrust, _remoteControl.GetShipSpeed(), 5);
+        }
+
+
+        private void OverrideThrust(bool enableOverride, Vector3D direction, float thrustModifier,
+            double currentSpeed = 100, double maximumSpeed = 110)
+        {
+            var thrustList = new List<IMyThrust>();
+            GridTerminalSystem.GetBlocksOfType(thrustList);
+
+            foreach (var thruster in thrustList)
+            {
+                if (thruster == null || !thruster.IsFunctional) continue;
+
+                if (enableOverride && currentSpeed < maximumSpeed)
+                {
+                    if (thruster.WorldMatrix.Forward == direction * -1)
+                    {
+                        thruster.Enabled = true;
+                        thruster.ThrustOverridePercentage = thrustModifier;
+                    }
+
+                    if (thruster.WorldMatrix.Forward == direction) thruster.Enabled = false;
+                }
+                else
+                {
+                    thruster.Enabled = true;
+                    thruster.SetValueFloat("Override", 0);
+                }
+            }
+        }
+
+        private void LevelShip(bool checkPlayer = true)
+        {
+            if (checkPlayer && CheckPlayer())
+            {
+                foreach (var gyro in _gyros) gyro.GyroOverride = false;
+                return;
+            }
+
+            var gravity = _remoteControl.GetNaturalGravity();
+            var up = -gravity;
+            var left = Vector3D.Cross(up, _remoteControl.WorldMatrix.Forward);
+            var forward = Vector3D.Cross(left, up);
+            var localUpVector = Vector3D.Rotate(up, MatrixD.Transpose(_remoteControl.WorldMatrix));
+            var flattenedUpVector = new Vector3D(localUpVector.X, localUpVector.Y, 0);
+            foreach (var gyro in _gyros)
+            {
+                if (gyro.WorldMatrix.Forward != _remoteControl.WorldMatrix.Forward &&
+                    gyro.WorldMatrix.Right != _remoteControl.WorldMatrix.Right)
+                {
+                    _autoNavigate = false;
+                    continue;
+                }
+
+                var roll = (float) VectorMath.AngleBetween(flattenedUpVector, Vector3D.Up) *
+                           Math.Sign(Vector3D.Dot(Vector3D.Right, flattenedUpVector));
+                var pitch = (float) VectorMath.AngleBetween(forward, _remoteControl.WorldMatrix.Forward) *
+                            Math.Sign(Vector3D.Dot(up, _remoteControl.WorldMatrix.Forward));
+                _pitchDelay = _inGravity && (Math.Abs(pitch) >= 0.1f || Math.Abs(roll) >= 0.1f)
+                    ? Math.Min(_pitchDelay += 5, 100)
+                    : Math.Max(_pitchDelay -= 1, 0);
+                if (_pitchDelay >= 1)
+                {
+                    gyro.Enabled = true;
+                    gyro.GyroOverride = true;
+                    gyro.Yaw = 0f;
+                    gyro.Pitch = 0f;
+                    gyro.Roll = 0f;
+
+                    if (pitch > 0.05f) gyro.Pitch = 0.1f;
+
+                    if (pitch < -0.05f) gyro.Pitch = -0.1f;
+                    if (Math.Abs(roll) > 1.8f || roll > 0.1f) gyro.Roll = 0.05f;
+
+                    if (roll < 0.05f) gyro.Roll = -0.05f;
+                }
+                else
+                {
+                    gyro.GyroOverride = false;
+                    gyro.Pitch = 0f;
+                    gyro.Roll = 0f;
+                    gyro.Yaw = 0f;
+                }
+            }
+        }
+
+        private bool CheckPlayer()
+        {
+            foreach (var cockpit in _cockpits)
+            {
+                if (SkipBlock(cockpit) || !cockpit.IsUnderControl)
+                    continue;
+                return cockpit.IsUnderControl;
+            }
+
+            return false;
+        }
+
+        #endregion
+
         #region Block Lists
 
         private readonly List<IMyDoor> _doors = new List<IMyDoor>();
@@ -1691,9 +1672,6 @@ namespace IngameScript
         private double _cruiseSpeed;
         private double _cruiseHeight;
         private Pilot _autoPilot = Pilot.Disabled;
-        
-
-
 
 
         //Floats, Int, double
@@ -1806,7 +1784,7 @@ namespace IngameScript
             _autoNavigate = _ini.Get(INI_SECTION_CONTROLS, INI_CONTROLS_NAVIGATE).ToBoolean(_autoNavigate);
 
             _doorDelay = _ini.Get(INI_SECTION_DELAYS, INI_DELAYS_DOOR).ToInt32(_doorDelay);
-            _tankFillLevel = _ini.Get(INI_DELAYS_DOOR, INI_DELAYS_TANK).ToDouble(_tankFillLevel);
+            _tankFillLevel = _ini.Get(INI_SECTION_DELAYS, INI_DELAYS_TANK).ToDouble(_tankFillLevel);
             _landingBrakeHeight = _ini.Get(INI_SECTION_DELAYS, INI_DELAYS_LANDINGHEIGHT).ToDouble(_landingBrakeHeight);
 
             _lowFuel = _ini.Get(INI_SECTION_POWER, INI_POWER_CAPLEVEL).ToInt32(_lowFuel);
@@ -1835,12 +1813,12 @@ namespace IngameScript
             _ini.Set(INI_SECTION_CONTROLS, INI_CONTROLS_PRODUCTION, _controlProduction);
             _ini.Set(INI_SECTION_CONTROLS, INI_CONTROLS_TURRETS, _turretControl);
             _ini.Set(INI_SECTION_CONTROLS, INI_CONTROLS_VENTS, _controlVents);
-            _ini.Set(INI_SECTION_CONTROLS,INI_CONTROLS_NAVIGATE, _autoNavigate);
+            _ini.Set(INI_SECTION_CONTROLS, INI_CONTROLS_NAVIGATE, _autoNavigate);
 
             //Delays
             _ini.Set(INI_SECTION_DELAYS, INI_DELAYS_DOOR, _doorDelay);
-            _ini.Set(INI_SECTION_DELAYS,INI_DELAYS_TANK, _tankFillLevel);
-            _ini.Set(INI_SECTION_DELAYS,INI_DELAYS_LANDINGHEIGHT,_landingBrakeHeight);
+            _ini.Set(INI_SECTION_DELAYS, INI_DELAYS_TANK, _tankFillLevel);
+            _ini.Set(INI_SECTION_DELAYS, INI_DELAYS_LANDINGHEIGHT, _landingBrakeHeight);
 
             //Power
             _ini.Set(INI_SECTION_POWER, INI_POWER_ENABLECAP, _capReactors);
@@ -1855,24 +1833,5 @@ namespace IngameScript
         }
 
         #endregion
-        #region Vector math
-
-        public static class VectorMath
-        {
-            /// <summary>
-            /// Computes angle between 2 vectors
-            /// </summary>
-            public static double AngleBetween(Vector3D a, Vector3D b) //returns radians
-            {
-                if (Vector3D.IsZero(a) || Vector3D.IsZero(b))
-                    return 0;
-                else
-                    return Math.Acos(MathHelper.Clamp(a.Dot(b) / Math.Sqrt(a.LengthSquared() * b.LengthSquared()), -1, 1));
-            }
-        }
-        #endregion
     }
-
-
-    
 }
