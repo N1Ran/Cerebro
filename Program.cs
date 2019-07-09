@@ -30,20 +30,20 @@ namespace IngameScript
         }
 
 
-        private void Main(string argument)
+        public void Main(string argument)
         {
             if (!_scriptInitialize) ScriptInitiate();
             if (!_hasAntenna && _hive) GrabNewAntenna();
             if (_remoteControl == null && !_isStatic && _autoNavigate) GrabNewRemote();
+            _navFlag = _isStatic && _autoNavigate && _remoteControl == null;
             CurrentState(argument, out _currentMode);
-            if (_currentMode != Switch.Start)
+            if (_currentMode == Switch.Pause)
             {
                 Echo("Script Paused!");
                 status.Clear();
                 status.Append("AI Paused ");
                 return;
             }
-
             CountTicks();
             if (GridFlags() || _combatFlag)
                 _alert = _combatFlag ? AlertState.Combat : AlertState.Error;
@@ -54,11 +54,11 @@ namespace IngameScript
             //debug running
             WriteToScreens(_sb);
             WriteToScreens(_sbPower, "power");
+            Echo($"{_sb}");
             DisplayData(_menuPointer);
             _script = (float) Runtime.LastRunTimeMs;
-            Echo($"Script RunTime: {_script:F2} ms");
+            //Echo($"Script RunTime: {_script:F2} ms");
             SystemsCheck(_counter);
-            //Runtime.UpdateFrequency = _master ? UpdateFrequency.Update10 : UpdateFrequency.Update100;
         }
 
         private void SystemsCheck(int i)
@@ -70,7 +70,6 @@ namespace IngameScript
             _turretControl = _turrets.Count > 0;
             _isStatic = Me.CubeGrid.IsStatic;
             _hive = _isStatic && _hasAntenna;
-            _hasProjector = _myProjector != null && !SkipBlock(_myProjector);
             _hasAntenna = _myAntenna != null && !SkipBlock(_myAntenna);
             AutoDoors();
             if (_autoNavigate && _remoteControl != null)
@@ -90,7 +89,7 @@ namespace IngameScript
                     {
                         DamageReport(out _damageDetected);
                         SetWeldersOnline(_damageDetected);
-                        if (!_hasProjector) return;
+                        if (_myProjector is null) return;
                         if (_collection.TryGetValue(_myProjector, out var time))
                         {
                             if (time.Second < ProjectorShutoffDelay || _damageDetected) break;
@@ -102,10 +101,13 @@ namespace IngameScript
                         _myProjector.Enabled = true;
                         _collection.Add(_myProjector, DateTime.Now);
                     }
-
                     break;
                 case 2:
-                    if (_powerManagement) BatteryCheck();
+                    if (_powerManagement)
+                    {
+                        BatteryCheck();
+                        _powerFlag = IsOverload(out _) || _lowBatteries?.Count/_batteries.Count > 0.75;
+                    }
                     break;
                 case 3:
                     if (!_turretControl) break;
@@ -125,7 +127,6 @@ namespace IngameScript
                             _myAntenna.Radius = 500f;
                         }
                     }
-
                     break;
                 case 4:
                     if (_turretControl) ManageTurrets();
@@ -167,7 +168,7 @@ namespace IngameScript
                     GasGenSwitch(_tankRefill);
                     break;
                 default:
-                    return;
+                    break;
             }
         }
 
@@ -276,29 +277,10 @@ namespace IngameScript
                 if (StringContains(t[0], "cruise"))
                 {
                     OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
-                    Vector3D x;
-                    switch (t[2].ToLower())
-                    {
-                        case "up":
-                            x = _remoteControl.WorldMatrix.Up;
-                            break;
-                        case "down":
-                            x = _remoteControl.WorldMatrix.Down;
-                            break;
-                        case "forward":
-                            x = _remoteControl.WorldMatrix.Forward;
-                            break;
-                        case "backward":
-                            x = _remoteControl.WorldMatrix.Backward;
-                            break;
-                        default:
-                            x = _remoteControl.WorldMatrix.Forward;
-                            break;
-                    }
-
+                    _thrust = 0;
                     _autoPilot = Pilot.Cruise;
-                    _cruiseDirection = x;
-                    _cruiseHeight = _inGravity ? double.Parse(t[2]) : 0;
+                    _cruiseDirection = t[1].ToLower();
+                    _cruiseHeight = _inGravity ? double.Parse(t[2]) : double.PositiveInfinity;
                     _cruiseSpeed = double.Parse(t[3]);
                 }
 
@@ -459,7 +441,7 @@ namespace IngameScript
                 }
             }
 
-            if (_hasProjector && _myProjector.IsProjecting)
+            if (_myProjector != null && _myProjector.IsProjecting)
             {
                 _sb.Append($"{_myProjector.CustomName} is active for repairs");
                 _sb.AppendLine();
@@ -631,8 +613,6 @@ namespace IngameScript
         //handle batteries
         private void BatteryCheck()
         {
-            double batteryPower = 0;
-            double batteryMax = 0;
             foreach (var panel in _solars) panel.Enabled = true;
             foreach (var battery in _batteries)
             {
@@ -646,15 +626,13 @@ namespace IngameScript
 
                 if (StringContains(battery.CustomName, "backup") && !_lowBatteries.Contains(battery))
                 {
-                    if (battery.CurrentStoredPower / battery.MaxStoredPower < 0.5f)
+                    if (battery.CurrentStoredPower / battery.MaxStoredPower < 0.1f)
                         _lowBatteries.Add(battery);
                     else
                         battery.ChargeMode = ChargeMode.Auto;
                     continue;
                 }
 
-                batteryMax += battery.MaxOutput;
-                batteryPower += battery.CurrentOutput;
                 if (!_lowBatteries.Contains(battery) &&
                     (battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint ||
                      ShipConnected() && _rechargeWhenConnected &&
@@ -667,7 +645,7 @@ namespace IngameScript
 
                 if (_lowBatteries.Contains(battery))
                 {
-                    if (battery.CurrentStoredPower / battery.MaxStoredPower < 1f)
+                    if (battery.CurrentStoredPower / battery.MaxStoredPower < .99f)
                         battery.ChargeMode = ChargeMode.Recharge;
 
                     else
@@ -678,15 +656,26 @@ namespace IngameScript
                 battery.ChargeMode = _isStatic ? ChargeMode.Discharge : ChargeMode.Auto;
             }
 
-            var batteriesInRecharge = _lowBatteries.Count;
-            var totalBatteries = _batteries.Count;
-            var batteryUse = batteryPower / batteryMax;
-            _powerFlag = (float) batteriesInRecharge / totalBatteries >= 0.50f || batteryUse >= _overload;
             foreach (var reactor in _reactors)
             {
                 if (SkipBlock(reactor)) continue;
-                reactor.Enabled = _powerFlag;
+                reactor.Enabled = !(_rechargeWhenConnected && ShipConnected()) && _powerFlag;
             }
+        }
+
+        private bool IsOverload(out float power)
+        {
+            double currentPower =0;
+            double maxPower = 0;
+            foreach(var block in _powerBlocks)
+            {
+                if (block is null || Closed(block))continue;
+                currentPower += block.CurrentOutput;
+                maxPower += block.MaxOutput;
+            }
+
+            power = (float)(currentPower / maxPower);
+            return power >= _overload;
         }
 
         private bool ShipConnected()
@@ -778,20 +767,24 @@ namespace IngameScript
         {
             foreach (var block in _productionBlocks)
             {
-                if (SkipBlock(block)) continue;
+                if (Closed(block)) continue;
                 if (!block.IsQueueEmpty)
                 {
                     block.Enabled = true;
-                    continue;
                 }
-
                 if (_collection.TryGetValue(block, out var time))
                 {
-                    if (time.Second < _productionDelay || block.IsProducing) continue;
+                    if (block.IsProducing || !block.IsQueueEmpty)
+                    {
+                        _collection.Remove(block);
+                        _collection.Add(block,DateTime.Now);
+                        continue;
+                    }
+                    if (time.Second < ProductionDelay) continue;
                     block.Enabled = false;
                     _collection.Remove(block);
                 }
-
+                if (!block.Enabled)continue;
                 _collection.Add(block, DateTime.Now);
             }
         }
@@ -925,7 +918,7 @@ namespace IngameScript
         {
             foreach (var connector in _connectors)
             {
-                if (Closed(connector) || connector.Status != MyShipConnectorStatus.Connectable)
+                if (Closed(connector) || connector.Status != MyShipConnectorStatus.Connectable || connector.Status == MyShipConnectorStatus.Connected)
                 {
                     _collection.Remove(connector);
                     continue;
@@ -971,6 +964,8 @@ namespace IngameScript
         private void GetBlocks()
         {
             //clear lists first
+            _gridBlocks.Clear();
+            _powerBlocks.Clear();
             _gyros.Clear();
             _productionBlocks.Clear();
             if (_reactorFuel.Keys.Count > 10) _reactorFuel.Clear();
@@ -995,6 +990,7 @@ namespace IngameScript
             _remotes.Clear();
             _gasGens.Clear();
             _shipWelders.Clear();
+            _thrusters.Clear();
 
             GridTerminalSystem.GetBlockGroupWithName(_welderGroup)?.GetBlocksOfType(_shipWelders);
             GridTerminalSystem.GetBlocksOfType(_gridBlocks, x => x.IsSameConstructAs(Me)
@@ -1011,6 +1007,9 @@ namespace IngameScript
                 switch (block)
                 {
                     //Assign Blocks
+                    case IMyThrust thruster:
+                        _thrusters.Add(thruster);
+                        break;
                     case IMyGyro gyro:
                         _gyros.Add(gyro);
                         break;
@@ -1025,16 +1024,20 @@ namespace IngameScript
                         break;
                     case IMyRefinery refinery:
                         _refineries.Add(refinery);
+                        _productionBlocks.Add(refinery);
                         break;
                     case IMyAssembler assembler:
                         _assemblers.Add(assembler);
+                        _productionBlocks.Add(assembler);
                         break;
                     case IMyBatteryBlock battery:
                         _batteries.Add(battery);
+                        _powerBlocks.Add(battery);
                         break;
                     case IMyReactor reactor:
                     {
                         _reactors.Add(reactor);
+                        _powerBlocks.Add(reactor);
                         if (reactor.GetInventory().ItemCount > 0 &&
                             !_reactorFuel.ContainsKey(reactor.BlockDefinition.SubtypeId))
                             _reactorFuel.Add(reactor.BlockDefinition.SubtypeId,
@@ -1074,9 +1077,13 @@ namespace IngameScript
                         break;
                     case IMySolarPanel solarPanel:
                         _solars.Add(solarPanel);
+                        _powerBlocks.Add(solarPanel);
                         break;
                     case IMyTimerBlock timer:
                         _timers.Add(timer);
+                        break;
+                    case IMyPowerProducer power:
+                        _powerBlocks.Add(power);
                         break;
                     case IMyShipController cockpit:
                     {
@@ -1394,11 +1401,8 @@ namespace IngameScript
                 case Pilot.Cruise:
                     LevelShip(false);
                     Cruise(_cruiseDirection, _cruiseHeight, _cruiseSpeed);
-                    if (_counter == 10) OverrideThrust(false, _remoteControl.WorldMatrix.Down, 1, _currentSpeed);
-
                     return;
                 case Pilot.Land:
-                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
                     LevelShip(false);
                     Land();
                     if (!(_currentHeight < 20) || !(_currentSpeed < 1)) return;
@@ -1438,26 +1442,55 @@ namespace IngameScript
             _remoteControl.SetAutoPilotEnabled(true);
         }
 
-        private void Cruise(Vector3D dir, double height, double speed = 100)
+        private void Cruise(string dir, double height, double speed = 100)
         {
+            Vector3D destination;
+            switch (dir)
+            {
+                case "up":
+                    destination = _remoteControl.WorldMatrix.Up;
+                    break;
+                case "down":
+                    destination = _remoteControl.WorldMatrix.Down;
+                    break;
+                case "left":
+                    destination = _remoteControl.WorldMatrix.Left;
+                    break;
+                case "right":
+                    destination = _remoteControl.WorldMatrix.Right;
+                    break;
+                case "forward":
+                    destination = _remoteControl.WorldMatrix.Forward;
+                    break;
+                case "backward":
+                    destination = _remoteControl.WorldMatrix.Backward;
+                    break;
+                default:
+                    destination = _remoteControl.WorldMatrix.Forward;
+                    break;
+            }
+            _thrust =_currentSpeed < speed -0.90
+                ? Math.Min(_thrust += 0.05f, 1)
+                : Math.Max(_thrust -= 0.25f, 0);
+            _lastSpeed = _currentSpeed;
             _remoteControl.TryGetPlanetElevation(MyPlanetElevation.Surface, out _currentHeight);
-            _thrust = _remoteControl.GetShipVelocities().LinearVelocity.Y < speed
-                ? Math.Min(_thrust += 0.1f, 1f)
-                : Math.Max(_thrust -= 0.1f, 0);
-            var x = Math.Max(height - 500, 2500);
-            if (_inGravity && _currentHeight > height + 1000)
+            var x = Math.Max(height - 500, 1000);
+            if(_inGravity && Math.Abs(_currentHeight - height) > 1000)
             {
-                OverrideThrust(true, _remoteControl.WorldMatrix.Down, 0.01f, _currentSpeed, 50);
-                return;
+                if (_currentHeight > x + 1000)
+                {
+                    OverrideThrust(true, _remoteControl.WorldMatrix.Down, 0.01f, _currentSpeed, 25);
+                    return;
+                }
+
+                if (_currentHeight < x)
+                {
+                    OverrideThrust(true, _remoteControl.WorldMatrix.Up, 1, _currentSpeed, 25);
+                    return;
+                }
             }
 
-            if (_inGravity && _currentHeight < x)
-            {
-                OverrideThrust(true, _remoteControl.WorldMatrix.Up, 1, _currentSpeed, 25);
-                return;
-            }
-
-            OverrideThrust(true, dir, 1, _currentSpeed, speed + 10);
+            OverrideThrust(true, destination, _thrust,  _currentSpeed,speed);
         }
 
         private void TakeOff()
@@ -1500,10 +1533,8 @@ namespace IngameScript
         private void OverrideThrust(bool enableOverride, Vector3D direction, float thrustModifier,
             double currentSpeed = 100, double maximumSpeed = 110)
         {
-            var thrustList = new List<IMyThrust>();
-            GridTerminalSystem.GetBlocksOfType(thrustList);
 
-            foreach (var thruster in thrustList)
+            foreach (var thruster in _thrusters)
             {
                 if (thruster == null || !thruster.IsFunctional) continue;
 
@@ -1608,6 +1639,8 @@ namespace IngameScript
         private readonly List<IMyGravityGenerator> _gravGens = new List<IMyGravityGenerator>();
         private readonly List<IMyLargeTurretBase> _designators = new List<IMyLargeTurretBase>();
         private readonly List<IMyTerminalBlock> _gridBlocks = new List<IMyTerminalBlock>();
+        private readonly List<IMyThrust> _thrusters = new List<IMyThrust>();
+        private readonly List<IMyPowerProducer> _powerBlocks = new List<IMyPowerProducer>();
         private readonly List<IMyGasTank> _hydrogenTanks = new List<IMyGasTank>();
         private readonly List<IMyLightingBlock> _lights = new List<IMyLightingBlock>();
         private readonly List<IMySensorBlock> _sensors = new List<IMySensorBlock>();
@@ -1645,7 +1678,6 @@ namespace IngameScript
         //Boolean
         private bool _combatFlag;
         private bool _hasAntenna;
-        private bool _hasProjector;
         private bool _hive = true;
         private readonly bool _productionFlag = false;
         private bool _isStatic;
@@ -1657,7 +1689,7 @@ namespace IngameScript
         private bool _controlVents = true;
         private bool _controlGasSystem = true;
         private bool _controlProduction = true;
-        private readonly bool _navFlag = false;
+        private bool _navFlag = false;
         private bool _capReactors = true;
         private bool _powerManagement;
         private bool _master = true;
@@ -1668,7 +1700,7 @@ namespace IngameScript
         private bool _inGravity;
 
 
-        private Vector3D _cruiseDirection;
+        private string _cruiseDirection;
         private double _cruiseSpeed;
         private double _cruiseHeight;
         private Pilot _autoPilot = Pilot.Disabled;
@@ -1678,7 +1710,7 @@ namespace IngameScript
         private const int ConnectDelay = 5;
         private const int DefaultAggression = 10;
         private int _doorDelay = 5;
-        private readonly int _productionDelay = 30;
+        private const int ProductionDelay = 30;
         private int _aggression;
         private int _alertCounter;
         private int _counter;
@@ -1688,12 +1720,13 @@ namespace IngameScript
         private float _thrust;
         private double _currentHeight;
         private double _currentSpeed;
+        private double _lastSpeed;
 
         private static int _lowFuel = 50;
         private float _script;
 
-        private static double _tankFillLevel = 0.75;
-        private static double _landingBrakeHeight = 2500;
+        private static double _tankFillLevel = 1;
+        private static double _landingBrakeHeight = 1700;
         private static float _rechargePoint = .15f;
         private static float _overload = 0.90f;
 
