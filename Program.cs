@@ -25,40 +25,33 @@ namespace IngameScript
             ScriptInitiate();
 
             Setup();
-            _scheduledSetup = new ScheduledAction(Setup, 50*Tick);
+            _scheduledSetup = new ScheduledAction(Setup, 1800);
 
             _scheduler = new Scheduler(this);
 
-            SetSchedule();
+           SetSchedule();
         }
 
 
         private void Main(string arg)
         {
+            CurrentState(arg, out _currentMode);
+            if (_currentMode == ProgramState.Stop)
+            {
+                Echo("Script Paused");
+                return;
+            }
             _runtimeTracker.AddRuntime();
             _scheduler.Update();
             _runtimeTracker.AddInstructions();
-            CurrentState(arg, out _currentMode);
             ProgramMaintenance();
-            if (_enableAutoDoor)AutoDoors();
             Storage = _currentMode.ToString();
             Me.GetSurface(0).WriteText(_runtimeTracker.Write());
             Screens();
-            if (_currentMode == ProgramState.ShutOff || _currentMode == ProgramState.Docked ||
-                _currentMode == ProgramState.Recharge)
-            {
-                Runtime.UpdateFrequency = UpdateFrequency.Update100;
-                return;
-            }
+            return;
             if (_autoNavigate)CheckNavigation();
+            if (_turretControl) AggroBuilder();
             DisplayData(_menuPointer);
-            if (_autoPilot != Pilot.Disabled)
-            {
-                Runtime.UpdateFrequency = UpdateFrequency.Update1;
-                return;
-            }
-
-            Runtime.UpdateFrequency =_isStatic && _alert!= AlertState.Combat ?UpdateFrequency.Update100:UpdateFrequency.Update10;
         }
 
         private void ProgramMaintenance()
@@ -68,11 +61,6 @@ namespace IngameScript
             if (!_hasAntenna && _hive) GrabNewAntenna();
             if (_remoteControl == null && !_isStatic && _autoNavigate) GrabNewRemote();
             _navFlag = _isStatic && _autoNavigate && _remoteControl == null;
-            if (_autoNavigate && _remoteControl != null)
-            {
-                _inGravity = _remoteControl.TryGetPlanetElevation(MyPlanetElevation.Surface, out _currentHeight);
-                _currentSpeed = _remoteControl.GetShipSpeed();
-            }
 
             if (IsDocked() && _currentMode != ProgramState.Recharge) _currentMode = ProgramState.Docked;
 
@@ -86,6 +74,7 @@ namespace IngameScript
                     PowerOn();
                     break;
                 case ProgramState.Docked:
+                    _setRechargeState = false;
                     PowerDown();
                    if (_rechargeWhenConnected) _currentMode = ProgramState.Recharge;
                     LockLandingGears();
@@ -93,7 +82,8 @@ namespace IngameScript
                 case ProgramState.Normal:
                     break;
                 case ProgramState.Recharge:
-                    Echo($"Recharging --- {Math.Round((double) BatteryLevel() * 100)}%");
+                    Echo($"Recharging --- {Math.Round((double)BatteryLevel() * 100)}%");
+                    
                     if (!_setRechargeState) SetRechargeSchedule();
                     if (IsConnected()) return;
                     _setRechargeState = false;
@@ -111,32 +101,132 @@ namespace IngameScript
                 _alert = AlertState.Clear;
         }
 
+        private void SetSchedule()
+        {
+                        //Scheduled actions
+           _scheduler.AddScheduledAction(_scheduledSetup);
+           _scheduler.AddScheduledAction(CheckConnectors,0.01);
+            //Queued actions
+            _scheduler.AddScheduledAction(AggroBuilder,0.1);
+            _scheduler.AddScheduledAction(CheckNavigation,10);
+            _scheduler.AddScheduledAction(CheckProjection,0.01);
+            _scheduler.AddScheduledAction(()=>SwitchToggle(_solars),0.0001);
+            _scheduler.AddScheduledAction(GetBlocks,0.001);
+            _scheduler.AddScheduledAction(FindFuel, 0.001);
+            _scheduler.AddScheduledAction(AutoDoors,1);
+            _scheduler.AddScheduledAction(ResetTurrets,0.1);
+            _scheduler.AddScheduledAction(()=>DisplayData(_menuPointer),0.1);
+            _scheduler.AddScheduledAction(Alerts,0.01);
+
+
+            var step = 1f / 5f;
+            var twoStep = 1f / 10f;
+            _scheduler.AddQueuedAction(() => UpdateProduction(0 * step, 1 * step), Tick);
+            _scheduler.AddQueuedAction(() => UpdateProduction(1 * step, 2 * step), Tick);
+            _scheduler.AddQueuedAction(() => UpdateProduction(2 * step, 3 * step), Tick);
+            _scheduler.AddQueuedAction(() => UpdateProduction(3 * step, 4 * step), Tick); 
+            _scheduler.AddQueuedAction(() => UpdateProduction(4 * step, 5 * step),Tick); 
+
+            _scheduler.AddQueuedAction(() => UpdateTanks(0 * step, 1 * step), Tick);
+            _scheduler.AddQueuedAction(() => UpdateTanks(1 * step, 2 * step), Tick);
+            _scheduler.AddQueuedAction(() => UpdateTanks(2 * step, 3 * step), Tick); 
+            _scheduler.AddQueuedAction(() => UpdateTanks(3 * step, 4 * step), Tick);
+            _scheduler.AddQueuedAction(() => UpdateTanks(4 * step, 5 * step), Tick); 
+
+           _scheduler.AddQueuedAction(() => SwitchToggle(_gasGens,_tankRefill), Tick);
+
+           _scheduler.AddQueuedAction(() => UpdateVents(0 * (twoStep), 1 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(1 * (twoStep), 2 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(2 * (twoStep), 3 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(3 * (twoStep), 4 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(4 * (twoStep), 5 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(5 * (twoStep), 6 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(6 * (twoStep), 7 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(7 * (twoStep), 8 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(8 * (twoStep), 9 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(9 * (twoStep), 10 * (twoStep)), Tick);
+      
+           _scheduler.AddQueuedAction(() => UpdateBatteries(0 * (twoStep), 1 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(1 * (twoStep), 2 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(2 * (twoStep), 3 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(3 * (twoStep), 4 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(4 * (twoStep), 5 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(5 * (twoStep), 6 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(6 * (twoStep), 7 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(7 * (twoStep), 8 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(8 * (twoStep), 9 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(9 * (twoStep), 10 * (twoStep)), Tick);
+
+           _scheduler.AddQueuedAction(() => UpdateReactors(0 * step, 1 * step), Tick); 
+           _scheduler.AddQueuedAction(() => UpdateReactors(1 * step, 2 * step), Tick); 
+           _scheduler.AddQueuedAction(() => UpdateReactors(2 * step, 3 * step), Tick);
+           _scheduler.AddQueuedAction(() => UpdateReactors(3 * step, 4 * step), Tick);
+           _scheduler.AddQueuedAction(() => UpdateReactors(4 * step, 5 * step), Tick);
+
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(0 * step, 1 * step), Tick); 
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(1 * step, 2 * step), Tick); 
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(2 * step, 3 * step), Tick);
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(3 * step, 4 * step), Tick);
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(4 * step, 5 * step), Tick);
+
+
+
+            _scheduler.AddQueuedAction(() => ManageTurrets(0 * 1f / 2f, 1 * 1f / 2f), Tick); 
+            _scheduler.AddQueuedAction(() => ManageTurrets(1 * 1f / 2f, 2 * 1f / 2f), Tick); 
+
+           _scheduler.AddQueuedAction(() => CapFuel(0 * (twoStep), 1 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(1 * (twoStep), 2 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(2 * (twoStep), 3 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(3 * (twoStep), 4 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(4 * (twoStep), 5 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(5 * (twoStep), 6 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(6 * (twoStep), 7 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(7 * (twoStep), 8 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(8 * (twoStep), 9 * (twoStep)), Tick);
+            _scheduler.AddQueuedAction(() => CapFuel(9 * (twoStep), 10 * (twoStep)), Tick);
+
+        }
+
         private void SetRechargeSchedule()
         {
+            _runtimeTracker.Reset();
             _scheduler.ClearQueuedActions();
             _setRechargeState = true;
 
-            _scheduler.AddScheduledAction(_scheduledSetup);
-            var step = 1f / 5f;
+            _scheduler.AddScheduledAction(GetBlocks,0.01);
+            _scheduler.AddScheduledAction(AutoDoors,1);
+            const float step = 1f / 10f;
 
-            _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), 500*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), 500*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), 500*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), 500*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), 500*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(5 * step, 6 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(6 * step, 7 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(7 * step, 8 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateVents(8 * step, 9 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateVents(9 * step, 10 * step), 100*Tick); 
 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), 500*Tick);
-            _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), 500*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), 500*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), 500*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), 500*Tick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(5 * step, 6 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(6 * step, 7 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(7 * step, 8 * step), 100*Tick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(8 * step, 9 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(9 * step, 10 * step), 100*Tick);
+
+
         }
 
         private void Screens()
         {
             Echo(_runtimeTracker.Write());
-            status.Clear();
-            status.Append("AI Running ");
+            _status.Clear();
+            _status.Append("AI Running ");
             WriteToScreens(_sb);
             WriteToScreens(_sbPower, "power");
         }
@@ -161,69 +251,6 @@ namespace IngameScript
             }
         }
 
-        private void SetSchedule()
-        {
-                        //Scheduled actions
-           _scheduler.AddScheduledAction(_scheduledSetup);
-
-
-            //Queued actions
-            
-            _scheduler.AddQueuedAction(() => ManageTurrets(0 * 1f / 2f, 1 * 1f / 2f), 5*Tick); 
-            _scheduler.AddQueuedAction(() => ManageTurrets(1 * 1f / 2f, 2 * 1f / 2f), 5*Tick); 
-            _scheduler.AddQueuedAction(ResetTurrets, 100*Tick);
-            _scheduler.AddQueuedAction(CheckProjection,100*Tick);
-            _scheduler.AddQueuedAction(()=>SwitchToggle(_solars),1000*Tick);
-            _scheduler.AddQueuedAction(AggroBuilder,Tick);
-            _scheduler.AddQueuedAction(GetBlocks,18000*Tick);
-
-            var step = 1f / 5f;
-            _scheduler.AddQueuedAction(() => UpdateProduction(0 * step, 1 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateProduction(1 * step, 2 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateProduction(2 * step, 3 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateProduction(3 * step, 4 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateProduction(4 * step, 5 * step),Tick); 
-
-            _scheduler.AddQueuedAction(() => UpdateTanks(0 * step, 1 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateTanks(1 * step, 2 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateTanks(2 * step, 3 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateTanks(3 * step, 4 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateTanks(4 * step, 5 * step), Tick); 
-
-           _scheduler.AddQueuedAction(() => SwitchToggle(_gasGens,_tankRefill), 100.0/60.0);
-
-           _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), Tick);
-
-            _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), Tick);
-
-            _scheduler.AddQueuedAction(() => UpdateReactors(0 * step, 1 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateReactors(1 * step, 2 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateReactors(2 * step, 3 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateReactors(3 * step, 4 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateReactors(4 * step, 5 * step), Tick);
-
-            _scheduler.AddQueuedAction(FindFuel, 1000*Tick);
-
-           _scheduler.AddQueuedAction(() => CapFuel(0 * (0.5f*step), 1 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(1 * (0.5f*step), 2 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(2 * (0.5f*step), 3 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(3 * (0.5f*step), 4 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(4 * (0.5f*step), 5 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(5 * (0.5f*step), 6 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(6 * (0.5f*step), 7 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(7 * (0.5f*step), 8 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(8 * (0.5f*step), 9 * (0.5f*step)), 100.0/60.0);
-            _scheduler.AddQueuedAction(() => CapFuel(9 * (0.5f*step), 10 * (0.5f*step)), 100.0/60.0);
-
-        }
         private void PowerOn()
         {
             foreach (var funcBlock in _gridBlocks.OfType<IMyFunctionalBlock>().Where(funcBlock =>
@@ -384,11 +411,16 @@ namespace IngameScript
                     return;
                 }
 
-                if (StringContains(t[0], "start")) Runtime.UpdateFrequency = UpdateFrequency.Update100;
+                if (StringContains(t[0], "start"))
+                {
+                    Runtime.UpdateFrequency = UpdateFrequency.Update100;
+                    result = ProgramState.Start;
+                    return;
+                }
 
                 if (StringContains(t[0], "takeoff"))
                 {
-                    if (!_autoNavigate)
+                    if (!_autoNavigate || _remoteControl == null)
                     {
                         Echo("Navigation is not enabled");
                         break;
@@ -396,8 +428,9 @@ namespace IngameScript
 
                     OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                     DampenersOnline(true);
-                    if (!double.TryParse(t[1], out _cruiseSpeed)) _cruiseSpeed = 100;
-                    if (!double.TryParse(t[2], out _takeOffAngle)) _takeOffAngle = 0;
+                    _cruiseSpeed = t.Length >= 2 && double.TryParse(t[1], out _cruiseSpeed) ? _cruiseSpeed:100;
+                    _takeOffAngle = t.Length >= 3 && double.TryParse(t[2], out _takeOffAngle) ? _takeOffAngle:0;
+                    _giveControl = t.Length >= 4 && bool.Parse(t[3]);
                     if (_remoteControl != null) _autoPilot = Pilot.Takeoff;
                 }
 
@@ -435,27 +468,38 @@ namespace IngameScript
 
                 if (StringContains(t[0], "land"))
                 {
+                    if (!_autoNavigate)
+                    {
+                        Echo("Navigation is not enabled");
+                        break;
+                    }
+
                     OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                     _autoPilot = _inGravity ? Pilot.Land : Pilot.Disabled;
                     break;
                 }
 
+                if (StringContains(t[0], "test"))
+                {
+                    _runtimeTracker.Reset();
+                    _scheduler.ClearQueuedActions();
+                }
                 if (StringContains(t[0], "cruise"))
                 {
+                    if (!_autoNavigate)
+                    {
+                        Echo("Navigation is not enabled");
+                        break;
+                    }
+
                     OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                     _thrust = 0;
                     _autoPilot = Pilot.Cruise;
                     DampenersOnline(true);
-                    if (t.Length == 1)
-                    {
-                        _cruiseHeight = _currentHeight;
-                        _cruiseSpeed = _currentSpeed;
-                        break;
-                    }
-
-                    _cruiseDirection = t[1].ToLower();
-                    _cruiseHeight = _inGravity && t.Length == 4 ? double.Parse(t[3]) : _currentHeight;
-                    _cruiseSpeed = double.Parse(t[2]);
+                    _cruiseDirection = t.Length >= 2 ? t[1].ToLower():"forward";
+                    _cruiseHeight = _inGravity && t.Length >= 4 ? double.Parse(t[3]) : _currentHeight;
+                    _cruiseSpeed = t.Length >= 3 ? double.Parse(t[2]): _currentSpeed;
+                    _giveControl = t.Length >= 5 && bool.Parse(t[4]);
                     break;
                 }
 
@@ -483,10 +527,6 @@ namespace IngameScript
             return _productionFlag || _powerFlag || _navFlag || _damageDetected;
         }
 
-        private void CountTicks()
-        {
-            _counter = _counter < 15 ? _counter += 1 : 0;
-        }
 
         private void DisplayData(int pointer)
         {
@@ -577,7 +617,7 @@ namespace IngameScript
 
             if (_lowBatteries != null && _lowBatteries?.Any() == true)
             {
-                double lowBatteriesCount = _lowBatteries.Count;
+                double lowBatteriesCount = _lowBatteries.Keys.Count;
                 double bat = _batteries.Count();
                 _sbPower.Append($"{Math.Round(lowBatteriesCount / bat * 100)}% of batteries in recharge");
                 _sbPower.AppendLine();
@@ -839,20 +879,17 @@ namespace IngameScript
         private void UpdateBatteries(float startProportion, float endProportion)
         {
             if (_batteries?.Any() == false || !_powerManagement ||_batteries ==null) return;
-
+            var rechargeAim = Math.Min((_rechargePoint + 0.1f), 1f);
             var highestCharge = _highestChargedBattery?.CurrentStoredPower / _highestChargedBattery?.MaxStoredPower ??
                                 0f;
-            double batteriesCount = _batteries.Count() - 1;
-
-            var rechargeBatteryCount = _isStatic ? batteriesCount * 0.35 : batteriesCount * 0.25;
-            var balanceChargingCount = _isStatic ? batteriesCount * 0.25 : batteriesCount * 0.15;
-
+            
             var start = (int) (startProportion * _batteries.Count());
             var end = (int) (endProportion * _batteries.Count());
+
+
             for (var i = start; i < end; ++i)
             {
                 var battery = _batteries.ToList()[i];
-                double lowBatteriesCount = _lowBatteries.Count;
                 if (SkipBlock(battery) || !battery.IsFunctional)
                 {
                     _lowBatteries.Remove(battery);
@@ -860,7 +897,38 @@ namespace IngameScript
                 }
 
                 battery.Enabled = true;
-                if (battery.CurrentStoredPower / battery.MaxStoredPower >= highestCharge)
+
+                float charge;
+
+                if (!_lowBatteries.TryGetValue(battery, out charge))
+                {
+                    if (_highestChargedBattery == null && battery.HasCapacityRemaining)
+                    {
+                        _highestChargedBattery = battery;
+                        continue;
+                    }
+                    if (_currentMode == ProgramState.Recharge  && battery != _highestChargedBattery)
+                    {
+                        _lowBatteries.Add(battery, 1f);
+                        battery.ChargeMode = ChargeMode.Recharge;
+                        continue;
+                    }
+
+                    if (!battery.HasCapacityRemaining||battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint )
+                    {
+                        _lowBatteries.Add(battery, Math.Min(_rechargePoint * 2, rechargeAim));
+                        continue;
+                    }
+
+                    battery.ChargeMode =
+                        _isStatic && !StringContains(battery.CustomName, "backup") && battery != _highestChargedBattery
+                            ? ChargeMode.Discharge
+                            : ChargeMode.Auto;
+
+
+                }
+
+                if (battery.CurrentStoredPower / battery.MaxStoredPower >= highestCharge || _highestChargedBattery == null)
                 {
                     _highestChargedBattery = battery;
                     highestCharge = battery.CurrentStoredPower / battery.MaxStoredPower;
@@ -868,58 +936,20 @@ namespace IngameScript
                     battery.ChargeMode = ChargeMode.Auto;
                     continue;
                 }
-
-                if (_alert == AlertState.Combat || _autoNavigate && _autoPilot > Pilot.Disabled ||
-                    _inGravity && _currentSpeed >= 10)
+                battery.ChargeMode = ChargeMode.Recharge;
+                if (_currentMode == ProgramState.Recharge)continue;
+                if ((double) (battery.CurrentStoredPower / battery.MaxStoredPower) >= charge)
                 {
-                    battery.ChargeMode = ChargeMode.Auto;
-                    continue;
-                }
-
-                float charge;
-                if (_lowBatteries.TryGetValue(battery, out charge))
-                {
-                    if ((double) (battery.CurrentStoredPower / battery.MaxStoredPower) < charge)
-                    {
-                        battery.ChargeMode = ChargeMode.Recharge;
-                        continue;
-                    }
-
                     battery.ChargeMode = ChargeMode.Auto;
                     _lowBatteries.Remove(battery);
                     continue;
                 }
 
-                if (_currentMode == ProgramState.Recharge ||
-                    (battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint ||
-                     IsDocked() && _rechargeWhenConnected &&
-                     battery.CurrentStoredPower / battery.MaxStoredPower < 0.99f) &&
-                    lowBatteriesCount < rechargeBatteryCount)
-                {
-                    _lowBatteries.Add(battery, 1);
-                    battery.ChargeMode = ChargeMode.Recharge;
-                    continue;
-                }
+                if (_alert != AlertState.Combat && (!_autoNavigate || _autoPilot <= Pilot.Disabled) &&
+                    (!_inGravity || !(_currentSpeed >= 10))) continue;
+                battery.ChargeMode = ChargeMode.Auto;
+                _lowBatteries.Remove(battery);
 
-                if (!battery.HasCapacityRemaining && lowBatteriesCount < rechargeBatteryCount)
-                {
-                    _lowBatteries.Add(battery, Math.Min(_rechargePoint * 2, 0.5f));
-                    continue;
-                }
-
-                //balance charging
-                if (battery.CurrentStoredPower / battery.MaxStoredPower < _batteryHighestCharge &&
-                    lowBatteriesCount < balanceChargingCount)
-                {
-                    _lowBatteries.Add(battery, highestCharge);
-                    battery.ChargeMode = ChargeMode.Recharge;
-                    continue;
-                }
-
-                battery.ChargeMode =
-                    _isStatic && !StringContains(battery.CustomName, "backup") && battery != _highestChargedBattery
-                        ? ChargeMode.Discharge
-                        : ChargeMode.Auto;
             }
 
             _batteryHighestCharge = highestCharge > _rechargePoint ? highestCharge - 0.1f : 1f;
@@ -1171,6 +1201,31 @@ namespace IngameScript
             }
         }
 
+        private void UpdateFuelTypes(float startProportion, float endProportion)
+        {
+            if (!_capReactors)return;
+            var reactors = _reactors?.Where(x => x.GetInventory().ItemCount > 0).ToList();
+            if (_reactorFuel.Keys.Count > 10) _reactorFuel.Clear();
+            if (reactors?.Any() == false||reactors==null)
+            {
+                _reactorFuel.Clear();
+                return;
+            }
+
+            var start = (int) (startProportion * reactors.Count);
+            var end = (int) (endProportion * reactors.Count);
+            for (var i = start; i < end; ++i)
+            {
+                var reactor = reactors[i];
+                if (_reactorFuel.ContainsKey(reactor.BlockDefinition.SubtypeId))continue;
+                var items = new List<MyInventoryItem>();
+                reactor.GetInventory().GetItems(items);
+                _reactorFuel.Add(reactor.BlockDefinition.SubtypeId,items.FirstOrDefault().Type);
+
+            }
+
+        }
+
 //handles Cerebro's aggression level
         private void AggroBuilder()
         {
@@ -1253,19 +1308,20 @@ namespace IngameScript
 //clear turret
         private void ResetTurrets()
         {
-            foreach (var turret in _turrets.Where(turret=>!Closed(turret))) turret.ResetTargetingToDefault();
+            foreach (var turret in _turrets.Where(turret=>!SkipBlock(turret) && !turret.HasTarget)) turret.ResetTargetingToDefault();
         }
 
 //returns if any of the turrets are actively targeting something
         private bool HasTarget(out MyDetectedEntityInfo target)
         {
+            target = new MyDetectedEntityInfo();
+
             foreach (var turret in _turrets.Where(turret => turret.Enabled && turret.HasTarget && !SkipBlock(turret)))
             {
                 target = turret.GetTargetedEntity();
                 return true;
             }
 
-            target = new MyDetectedEntityInfo();
             return false;
         }
 
@@ -1276,7 +1332,6 @@ namespace IngameScript
         {
             _gridBlocks.Clear();
 
-            if (_reactorFuel.Keys.Count > 10) _reactorFuel.Clear();
             GridTerminalSystem.GetBlockGroupWithName(_welderGroup)?.GetBlocksOfType(_shipWelders);
             GridTerminalSystem.GetBlocksOfType(_gridBlocks, x => x.IsSameConstructAs(Me)
                                                                  && !StringContains(x.CustomData, "ignore") &&
@@ -1291,24 +1346,17 @@ namespace IngameScript
             _powerBlocks = _gridBlocks.OfType<IMyPowerProducer>();
             _gyros = _gridBlocks.OfType<IMyGyro>();
             _productionBlocks = _gridBlocks.OfType<IMyProductionBlock>();
-            _refineries = _gridBlocks.OfType<IMyRefinery>();
-            _assemblers = _gridBlocks.OfType<IMyAssembler>();
             _gravGens = _gridBlocks.OfType<IMyGravityGenerator>();
             _batteries = _gridBlocks.OfType<IMyBatteryBlock>();
             _reactors = _gridBlocks.OfType<IMyReactor>();
             _gasTanks = _gridBlocks.OfType<IMyGasTank>();
-            var myGasTanks = _gasTanks as IMyGasTank[] ?? _gasTanks.ToArray();
-            _oxygenTanks = myGasTanks.Where(block => StringContains(block.BlockDefinition.SubtypeName, "oxygen"));
-            _hydrogenTanks = myGasTanks.Where(block => StringContains(block.BlockDefinition.SubtypeName, "hydrogen"));
             _airVents = _gridBlocks.OfType<IMyAirVent>();
             _textPanels = _gridBlocks.OfType<IMyTextPanel>();
             _connectors = _gridBlocks.OfType<IMyShipConnector>();
             _turrets = _gridBlocks.OfType<IMyLargeTurretBase>();
             _lights = _gridBlocks.OfType<IMyLightingBlock>();
             _doors = _gridBlocks.OfType<IMyDoor>();
-            _sensors = _gridBlocks.OfType<IMySensorBlock>();
             _solars = _gridBlocks.OfType<IMySolarPanel>();
-            _timers = _gridBlocks.OfType<IMyTimerBlock>();
             _cockpits = _gridBlocks.OfType<IMyShipController>();
             _remotes = _gridBlocks.OfType<IMyRemoteControl>();
             _gasGens = _gridBlocks.OfType<IMyGasGenerator>();
@@ -1316,15 +1364,7 @@ namespace IngameScript
             _damagedBlocks = _gridBlocks.Where(block =>
                 !Closed(block) && block.CubeGrid.GetCubeBlock(block.Position).CurrentDamage > 0);
 
-
-            var myReactors = _reactors.ToArray();
-            if (myReactors?.Any() == true)
-                foreach (var reactor in myReactors.Where(reactor =>
-                    reactor.GetInventory().ItemCount > 0 &&
-                    !_reactorFuel.ContainsKey(reactor.BlockDefinition.SubtypeId)))
-                    _reactorFuel.Add(reactor.BlockDefinition.SubtypeId,
-                        reactor.GetInventory(0).GetItemAt(0).Value.Type);
-
+                
             foreach (var block in _gridBlocks)
             {
                 block.ShowOnHUD = false;
@@ -1350,214 +1390,6 @@ namespace IngameScript
             return Vector3D.IsZero(block.WorldMatrix.Translation);
         }
 
-        private void SetRotationTowardsCoordinates(bool enableRotation, IMyTerminalBlock referenceBlock,
-            Vector3D targetCoords, List<IMyGyro> gyroRotateList, double minRotation = 0.1, double rotationAccuracy = 1,
-            double rotationStrength = 1)
-        {
-            var gyroRotation = new Vector3D(0, 0, 0);
-            double totalAxisDifference = 0;
-            var refMatrix = referenceBlock.WorldMatrix;
-            var pitchDirections = new Dictionary<Vector3D, Vector3D>();
-            var yawDirections = new Dictionary<Vector3D, Vector3D>();
-
-            if (enableRotation)
-            {
-                var maxRotation = referenceBlock.CubeGrid.GridSizeEnum == MyCubeSize.Large ? 3.14 : 3.14 * 2;
-
-                var forwardDir =
-                    Vector3D.Normalize(targetCoords - referenceBlock.GetPosition()); //Direction To The Target
-                var targetCheck = forwardDir * 100 + Vector3D.Zero;
-                var upDistCheck = Vector3D.Distance(targetCheck, referenceBlock.WorldMatrix.Up * 100 + Vector3D.Zero);
-                var downDistCheck =
-                    Vector3D.Distance(targetCheck, referenceBlock.WorldMatrix.Down * 100 + Vector3D.Zero);
-                var leftDistCheck =
-                    Vector3D.Distance(targetCheck, referenceBlock.WorldMatrix.Left * 100 + Vector3D.Zero);
-                var rightDistCheck =
-                    Vector3D.Distance(targetCheck, referenceBlock.WorldMatrix.Right * 100 + Vector3D.Zero);
-
-                //Pitch
-                double pitchAxisDifference = 0;
-                if (upDistCheck < downDistCheck)
-                {
-                    gyroRotation.X = -1 * maxRotation;
-                    pitchAxisDifference = downDistCheck - upDistCheck;
-                }
-                else
-                {
-                    gyroRotation.X = maxRotation;
-                    pitchAxisDifference = upDistCheck - downDistCheck;
-                }
-
-                var pitchPowerModifier = pitchAxisDifference / 200;
-
-                if (pitchPowerModifier < minRotation) pitchPowerModifier = minRotation;
-
-                //Yaw
-                double yawAxisDifference = 0;
-                if (leftDistCheck < rightDistCheck)
-                {
-                    gyroRotation.Y = -1 * maxRotation;
-                    yawAxisDifference = rightDistCheck - leftDistCheck;
-                }
-                else
-                {
-                    gyroRotation.Y = maxRotation;
-                    yawAxisDifference = leftDistCheck - rightDistCheck;
-                }
-
-                var yawPowerModifier = yawAxisDifference / 200;
-
-                if (yawPowerModifier < minRotation) yawPowerModifier = minRotation;
-
-                //Apply Rotation To Gyros
-
-                if (pitchAxisDifference > rotationAccuracy)
-                {
-                    gyroRotation.X *= pitchPowerModifier;
-                    gyroRotation.X *= rotationStrength;
-                }
-                else
-                {
-                    gyroRotation.X = 0;
-                }
-
-                if (yawAxisDifference > rotationAccuracy)
-                {
-                    gyroRotation.Y *= yawPowerModifier;
-                    gyroRotation.Y *= rotationStrength;
-                }
-                else
-                {
-                    gyroRotation.Y = 0;
-                }
-
-                totalAxisDifference = yawAxisDifference + pitchAxisDifference;
-                pitchDirections.Add(refMatrix.Forward, refMatrix.Up);
-                pitchDirections.Add(refMatrix.Up, refMatrix.Backward);
-                pitchDirections.Add(refMatrix.Backward, refMatrix.Down);
-                pitchDirections.Add(refMatrix.Down, refMatrix.Forward);
-
-                yawDirections.Add(refMatrix.Forward, refMatrix.Right);
-                yawDirections.Add(refMatrix.Right, refMatrix.Backward);
-                yawDirections.Add(refMatrix.Backward, refMatrix.Left);
-                yawDirections.Add(refMatrix.Left, refMatrix.Forward);
-            }
-
-            var pitchDirectionsList = pitchDirections.Keys.ToList();
-            var yawDirectionsList = yawDirections.Keys.ToList();
-
-            foreach (var gyro in gyroRotateList.Where(gyro => gyro != null).Where(gyro =>
-                gyro.IsWorking && gyro.IsFunctional && gyro.CubeGrid == referenceBlock.CubeGrid))
-            {
-                if (enableRotation == false)
-                {
-                    gyro.GyroOverride = false;
-                    continue;
-                }
-
-                if (totalAxisDifference < rotationAccuracy)
-                {
-                    gyro.Yaw = 0;
-                    gyro.Pitch = 0;
-                    gyro.Roll = 0;
-                    continue;
-                }
-
-                var gyroMatrix = gyro.WorldMatrix;
-                double[] localRotation = {0, 0, 0};
-                var pitchIndex = 0;
-                var yawIndex = 0;
-
-                var localPitchDirections = new Dictionary<Vector3D, Vector3D>();
-                var localYawDirections = new Dictionary<Vector3D, Vector3D>();
-                var localRollDirections = new Dictionary<Vector3D, Vector3D>();
-
-                var gyroPitchDirections = new Dictionary<Vector3D, Vector3D>();
-                var gyroYawDirections = new Dictionary<Vector3D, Vector3D>();
-
-                localPitchDirections.Add(gyroMatrix.Forward, gyroMatrix.Up);
-                localPitchDirections.Add(gyroMatrix.Up, gyroMatrix.Backward);
-                localPitchDirections.Add(gyroMatrix.Backward, gyroMatrix.Down);
-                localPitchDirections.Add(gyroMatrix.Down, gyroMatrix.Forward);
-
-                localYawDirections.Add(gyroMatrix.Forward, gyroMatrix.Right);
-                localYawDirections.Add(gyroMatrix.Right, gyroMatrix.Backward);
-                localYawDirections.Add(gyroMatrix.Backward, gyroMatrix.Left);
-                localYawDirections.Add(gyroMatrix.Left, gyroMatrix.Forward);
-
-                localRollDirections.Add(gyroMatrix.Up, gyroMatrix.Right);
-                localRollDirections.Add(gyroMatrix.Right, gyroMatrix.Down);
-                localRollDirections.Add(gyroMatrix.Down, gyroMatrix.Left);
-                localRollDirections.Add(gyroMatrix.Left, gyroMatrix.Up);
-
-                //Get Pitch Axis
-                var checkPitchPitch = pitchDirectionsList.Except(localPitchDirections.Keys.ToList()).ToList();
-                if (checkPitchPitch.Count == 0)
-                {
-                    pitchIndex = 0;
-                    gyroPitchDirections = localPitchDirections;
-                }
-
-                var checkPitchYaw = pitchDirectionsList.Except(localYawDirections.Keys.ToList()).ToList();
-                if (checkPitchYaw.Count == 0)
-                {
-                    pitchIndex = 1;
-                    gyroPitchDirections = localYawDirections;
-                }
-
-                var checkPitchRoll = pitchDirectionsList.Except(localRollDirections.Keys.ToList()).ToList();
-                if (checkPitchRoll.Count == 0)
-                {
-                    pitchIndex = 2;
-                    gyroPitchDirections = localRollDirections;
-                }
-
-                //Get Yaw Axis
-                var checkYawPitch = yawDirectionsList.Except(localPitchDirections.Keys.ToList()).ToList();
-                if (checkYawPitch.Count == 0)
-                {
-                    yawIndex = 0;
-                    gyroYawDirections = localPitchDirections;
-                }
-
-                var checkYawYaw = yawDirectionsList.Except(localYawDirections.Keys.ToList()).ToList();
-                if (checkYawYaw.Count == 0)
-                {
-                    yawIndex = 1;
-                    gyroYawDirections = localYawDirections;
-                }
-
-                var checkYawRoll = yawDirectionsList.Except(localRollDirections.Keys.ToList()).ToList();
-                if (checkYawRoll.Count == 0)
-                {
-                    yawIndex = 2;
-                    gyroYawDirections = localRollDirections;
-                }
-
-                //Assign Pitch
-                if (pitchDirections[refMatrix.Forward] == gyroPitchDirections[refMatrix.Forward])
-                    localRotation[pitchIndex] = gyroRotation.X;
-                else
-                    localRotation[pitchIndex] = gyroRotation.X * -1;
-
-                if (pitchIndex == 1 || pitchIndex == 2) localRotation[pitchIndex] *= -1;
-
-                //Assign Yaw
-                if (yawDirections[refMatrix.Forward] == gyroYawDirections[refMatrix.Forward])
-                    localRotation[yawIndex] = gyroRotation.Y;
-                else
-                    localRotation[yawIndex] = gyroRotation.Y * -1;
-
-                if (yawIndex == 0) localRotation[yawIndex] *= -1;
-
-                //Apply To Gyros
-                gyro.Pitch = (float) localRotation[0];
-                gyro.Yaw = (float) localRotation[1];
-                gyro.Roll = (float) localRotation[2];
-                gyro.GyroOverride = true;
-                break;
-            }
-        }
 
 
 //check block for ownership rites
@@ -1585,12 +1417,12 @@ namespace IngameScript
 
         private enum ProgramState
         {
-            Stop,
-            Start,
             ShutOff,
             Recharge,
-            Docked,
             PowerSave,
+            Docked,
+            Stop,
+            Start,
             PowerOn,
             Normal
         }
@@ -1646,6 +1478,13 @@ namespace IngameScript
                 MaxInstructions = _instructions.Max();
             }
 
+            public void Reset()
+            {
+                _runtimes.Clear();
+                _instructions.Clear();
+                _runtimes.Clear();
+            }
+
             public string Write()
             {
                 _sb.Clear();
@@ -1689,7 +1528,7 @@ namespace IngameScript
             private const double runtimeToRealtime = 1.0 / 60.0 / 0.0166666;
             private readonly List<ScheduledAction> _actionsToDispose = new List<ScheduledAction>();
             private readonly Program _program;
-            private readonly Queue<ScheduledAction> _queuedActions = new Queue<ScheduledAction>();
+            private Queue<ScheduledAction> _queuedActions = new Queue<ScheduledAction>();
             private readonly List<ScheduledAction> _scheduledActions = new List<ScheduledAction>();
             private ScheduledAction _currentlyQueuedAction;
 
@@ -1779,8 +1618,8 @@ namespace IngameScript
             /// </summary>
             public void ClearQueuedActions()
             {
-                if (!_queuedActions.Any()) return;
                 _queuedActions.Clear();
+                _queuedActions = new Queue<ScheduledAction>();
             }
 
             /// <summary>
@@ -1862,12 +1701,15 @@ namespace IngameScript
         private void CheckNavigation()
         {
             if (!_autoNavigate || _remoteControl == null) return;
+            _inGravity = _remoteControl.TryGetPlanetElevation(MyPlanetElevation.Surface, out _currentHeight);
+            _currentSpeed = _remoteControl.GetShipSpeed();
+
             switch (_autoPilot)
             {
                 case Pilot.Disabled:
                     break;
                 case Pilot.Cruise:
-                    Cruise(_cruiseDirection, _cruiseHeight, _cruiseSpeed);
+                    Cruise(_cruiseDirection, _cruiseHeight, _cruiseSpeed,_giveControl);
                     return;
                 case Pilot.Land:
                     LevelShip(false, 0, 0);
@@ -1877,7 +1719,7 @@ namespace IngameScript
                     _autoPilot = Pilot.Disabled;
                     return;
                 case Pilot.Takeoff:
-                    TakeOff(_cruiseSpeed,_takeOffAngle);
+                    TakeOff(_cruiseSpeed,_takeOffAngle,_giveControl);
                     return;
                 default:
                     return;
@@ -1914,31 +1756,32 @@ namespace IngameScript
             _remoteControl.SetAutoPilotEnabled(true);
         }
 
-        private void Cruise(string dir, double height, double speed = 100)
+        private void Cruise(string dir, double height = 2500, double speed = 100, bool giveControl = true)
         {
-            Vector3D destination;
+            giveControl = !_inGravity || giveControl;
+            Vector3D direction;
             switch (dir)
             {
                 case "up":
-                    destination = _remoteControl.WorldMatrix.Up;
+                    direction = _remoteControl.WorldMatrix.Up;
                     break;
                 case "down":
-                    destination = _remoteControl.WorldMatrix.Down;
+                    direction = _remoteControl.WorldMatrix.Down;
                     break;
                 case "left":
-                    destination = _remoteControl.WorldMatrix.Left;
+                    direction = _remoteControl.WorldMatrix.Left;
                     break;
                 case "right":
-                    destination = _remoteControl.WorldMatrix.Right;
+                    direction = _remoteControl.WorldMatrix.Right;
                     break;
                 case "forward":
-                    destination = _remoteControl.WorldMatrix.Forward;
+                    direction = _remoteControl.WorldMatrix.Forward;
                     break;
                 case "backward":
-                    destination = _remoteControl.WorldMatrix.Backward;
+                    direction = _remoteControl.WorldMatrix.Backward;
                     break;
                 default:
-                    destination = _remoteControl.WorldMatrix.Forward;
+                    direction = _remoteControl.WorldMatrix.Forward;
                     break;
             }
 
@@ -1949,7 +1792,7 @@ namespace IngameScript
             var x = Math.Max(height - 500, _safeCruiseHeight);
             var y = _currentHeight < _cruiseHeight + 250 ? 0.025f : -0.075f;
             _cruiseHeight = _cruiseHeight < _safeCruiseHeight ? x : _cruiseHeight;
-            LevelShip(!_inGravity, y, 0);
+            LevelShip(giveControl, y, 0);
             if (_inGravity && Math.Abs(_currentHeight - x) > 1500)
             {
                 var adjustSpeed = Math.Abs(_currentHeight - height) > 2500 ? 110 : 50;
@@ -1966,7 +1809,7 @@ namespace IngameScript
                 }
             }
 
-            OverrideThrust(true, destination, _thrust, _currentSpeed, speed);
+            OverrideThrust(true, direction, _thrust, _currentSpeed, speed);
         }
 
         private void EndTrip()
@@ -1993,21 +1836,22 @@ namespace IngameScript
             DampenersOnline(true);
         }
 
-        private void TakeOff(double takeOffSpeed = 100, double angle = 0)
+        private void TakeOff(double takeOffSpeed = 100, double angle = 0, bool giveControl = false)
         {
             if (_remoteControl == null)
             {
                 GrabNewRemote();
                 return;
             }
-            LevelShip(false, (float)angle/100, 0);
-            var up = _remoteControl.WorldMatrix.Up;
+            LevelShip(giveControl, (float)angle/100, 0);
+            var up = _remoteControl.WorldMatrix.GetDirectionVector(
+                _remoteControl.WorldMatrix.GetClosestDirection(-_remoteControl.GetNaturalGravity()));
+            
             var maxSpeed = takeOffSpeed - takeOffSpeed * 0.05;
-            var x = _remoteControl.GetShipVelocities().LinearVelocity.Y +
-                    _remoteControl.GetShipVelocities().LinearVelocity.Z;
+
             if (_currentHeight <= _landingBrakeHeight) _thrust = 1f;
             else
-                _thrust = x < maxSpeed * .9 && _currentSpeed < maxSpeed
+                _thrust =  _currentSpeed < maxSpeed
                     ? Math.Min(_thrust += 0.15f, 1)
                     : Math.Max(_thrust -= 0.05f, 0);
             OverrideThrust(_inGravity, up, _thrust, _currentSpeed,
@@ -2094,8 +1938,8 @@ namespace IngameScript
             _rollDelay = _inGravity && Math.Abs(roll - setRoll) >= 0.05
                 ? Math.Min(_rollDelay += 1, 25)
                 : Math.Max(_rollDelay -= 1, 0);
-            var pitchOverride = Math.Abs(pitch) > 0.65 ? 1f : 0.05f;
-            var rollOverride = Math.Abs(roll) > 0.65 ? 1f : 0.05f;
+            var pitchOverride = Math.Abs(pitch) > 0.65 ? 0.25f : 0.05f;
+            var rollOverride = Math.Abs(roll) > 0.65 ? 0.25f : 0.05f;
             foreach (var gyro in _gyros)
             {
                 if (_pitchDelay == 0 && _rollDelay == 0)
@@ -2162,32 +2006,26 @@ namespace IngameScript
         #region Block Lists
 
         private IEnumerable<IMyDoor> _doors;
-        private IEnumerable<IMyGasTank> _oxygenTanks;
+        private IEnumerable<IMyTextSurface> _textSurfaces;
         private IEnumerable<IMyProductionBlock> _productionBlocks;
         private IEnumerable<IMyReactor> _reactors;
-        private IEnumerable<IMyRefinery> _refineries;
         private readonly List<IMyShipWelder> _shipWelders = new List<IMyShipWelder>();
         private IEnumerable<IMyAirVent> _airVents;
         private IEnumerable<IMyGasGenerator> _gasGens;
         private IEnumerable<IMyGasTank> _gasTanks;
         private IEnumerable<IMyGravityGenerator> _gravGens;
-        private readonly List<IMyLargeTurretBase> _designators = new List<IMyLargeTurretBase>();
         private readonly List<IMyTerminalBlock> _gridBlocks = new List<IMyTerminalBlock>();
         private IEnumerable<IMyThrust> _thrusters;
         private IEnumerable<IMyTerminalBlock> _damagedBlocks;
         private IEnumerable<IMyPowerProducer> _powerBlocks;
-        private IEnumerable<IMyGasTank> _hydrogenTanks;
         private IEnumerable<IMyLightingBlock> _lights;
-        private IEnumerable<IMySensorBlock> _sensors;
         private IEnumerable<IMySolarPanel> _solars;
         private IEnumerable<IMyTextPanel> _textPanels;
-        private IEnumerable<IMyTimerBlock> _timers;
         private IEnumerable<IMyLargeTurretBase> _turrets;
         private IEnumerable<IMyRemoteControl> _remotes;
         private IEnumerable<IMyShipConnector> _connectors;
         private IEnumerable<IMyShipController> _cockpits;
         private IEnumerable<IMyBatteryBlock> _batteries;
-        private IEnumerable<IMyAssembler> _assemblers;
         private IEnumerable<IMyGyro> _gyros;
         private IEnumerable<IMySoundBlock> _soundBlocks;
         private IEnumerable<IMyLandingGear> _landingGears;
@@ -2203,7 +2041,7 @@ namespace IngameScript
 
         private readonly StringBuilder _sb = new StringBuilder();
         private readonly StringBuilder _sbPower = new StringBuilder();
-        private readonly StringBuilder status = new StringBuilder();
+        private readonly StringBuilder _status = new StringBuilder();
 
 
 //enum
@@ -2244,6 +2082,7 @@ namespace IngameScript
         private string _antimissileName = "antimissile";
         private string _cruiseDirection;
         private double _cruiseSpeed;
+        private bool _giveControl;
         private double _takeOffAngle;
         private double _cruiseHeight;
         private Pilot _autoPilot = Pilot.Disabled;
@@ -2257,7 +2096,6 @@ namespace IngameScript
         private const int ProductionDelay = 30;
         private int _aggression;
         private int _alertCounter;
-        private int _counter;
         private int _menuPointer;
         private const int ProjectorShutoffDelay = 30;
         private int _pitchDelay;
