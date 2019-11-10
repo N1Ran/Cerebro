@@ -4,6 +4,8 @@ Commands
 *Main
 
 *Navigation
+	-TakeOff: "takeoff (speed) (angle) (givecontrol)"  ie  takeoff 100 45 false
+	-Cruise: "cruise speed height "
 
 *PowerStates
 
