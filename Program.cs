@@ -4,8 +4,10 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using Sandbox.Common.ObjectBuilders;
+using Sandbox.Common.ObjectBuilders.Definitions;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
+using SpaceEngineers.Game.Entities.Blocks;
 using SpaceEngineers.Game.ModAPI.Ingame;
 using VRage;
 using VRage.Game;
@@ -63,8 +65,6 @@ namespace IngameScript
         {
             _isStatic = Me.CubeGrid.IsStatic;
 
-            _alertCounter = _alertCounter < 10 ? _alertCounter += 1 : 0;
-
             if (!_hasAntenna && _hive) GrabNewAntenna();
             if (_remoteControl == null && !_isStatic && _autoNavigate) GrabNewRemote();
             _navFlag = _isStatic && _autoNavigate && _remoteControl == null;
@@ -119,75 +119,76 @@ namespace IngameScript
             _scheduler.AddScheduledAction(AutoDoors,1);
             _scheduler.AddScheduledAction(ResetTurrets,1);
             _scheduler.AddScheduledAction(()=>DisplayData(_menuPointer),0.1);
-            _scheduler.AddScheduledAction(Alerts,0.01);
+            _scheduler.AddScheduledAction(Alerts,0.1);
             _scheduler.AddScheduledAction(AlertLights,1);
 
 
             const float step = 1f / 5f;
             const float twoStep = 1f / 10f;
-            _scheduler.AddQueuedAction(() => UpdateProduction(0 * step, 1 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateProduction(1 * step, 2 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateProduction(2 * step, 3 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateProduction(3 * step, 4 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateProduction(4 * step, 5 * step),Tick); 
+            const double mehTick = 10 * Tick;
+            _scheduler.AddQueuedAction(() => UpdateProduction(0 * step, 1 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateProduction(1 * step, 2 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateProduction(2 * step, 3 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateProduction(3 * step, 4 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateProduction(4 * step, 5 * step),mehTick); 
 
-            _scheduler.AddQueuedAction(() => UpdateTanks(0 * step, 1 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateTanks(1 * step, 2 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateTanks(2 * step, 3 * step), Tick); 
-            _scheduler.AddQueuedAction(() => UpdateTanks(3 * step, 4 * step), Tick);
-            _scheduler.AddQueuedAction(() => UpdateTanks(4 * step, 5 * step), Tick); 
+            _scheduler.AddQueuedAction(() => UpdateTanks(0 * step, 1 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateTanks(1 * step, 2 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateTanks(2 * step, 3 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateTanks(3 * step, 4 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateTanks(4 * step, 5 * step), mehTick); 
 
-           _scheduler.AddQueuedAction(() => SwitchToggle(_gasGens,_tankRefill), Tick);
+           _scheduler.AddQueuedAction(() => SwitchToggle(_gasGens,_tankRefill), mehTick);
 
-           _scheduler.AddQueuedAction(() => UpdateVents(0 * (twoStep), 1 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(1 * (twoStep), 2 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(2 * (twoStep), 3 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(3 * (twoStep), 4 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(4 * (twoStep), 5 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(5 * (twoStep), 6 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(6 * (twoStep), 7 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(7 * (twoStep), 8 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(8 * (twoStep), 9 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateVents(9 * (twoStep), 10 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateVents(0 * (twoStep), 1 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(1 * (twoStep), 2 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(2 * (twoStep), 3 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(3 * (twoStep), 4 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(4 * (twoStep), 5 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(5 * (twoStep), 6 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(6 * (twoStep), 7 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(7 * (twoStep), 8 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(8 * (twoStep), 9 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateVents(9 * (twoStep), 10 * (twoStep)), mehTick);
       
-           _scheduler.AddQueuedAction(() => UpdateBatteries(0 * (twoStep), 1 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(1 * (twoStep), 2 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(2 * (twoStep), 3 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(3 * (twoStep), 4 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(4 * (twoStep), 5 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(5 * (twoStep), 6 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(6 * (twoStep), 7 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(7 * (twoStep), 8 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(8 * (twoStep), 9 * (twoStep)), Tick);
-           _scheduler.AddQueuedAction(() => UpdateBatteries(9 * (twoStep), 10 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(0 * (twoStep), 1 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(1 * (twoStep), 2 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(2 * (twoStep), 3 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(3 * (twoStep), 4 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(4 * (twoStep), 5 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(5 * (twoStep), 6 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(6 * (twoStep), 7 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(7 * (twoStep), 8 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(8 * (twoStep), 9 * (twoStep)), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateBatteries(9 * (twoStep), 10 * (twoStep)), mehTick);
 
-           _scheduler.AddQueuedAction(() => UpdateReactors(0 * step, 1 * step), Tick); 
-           _scheduler.AddQueuedAction(() => UpdateReactors(1 * step, 2 * step), Tick); 
-           _scheduler.AddQueuedAction(() => UpdateReactors(2 * step, 3 * step), Tick);
-           _scheduler.AddQueuedAction(() => UpdateReactors(3 * step, 4 * step), Tick);
-           _scheduler.AddQueuedAction(() => UpdateReactors(4 * step, 5 * step), Tick);
+           _scheduler.AddQueuedAction(() => UpdateReactors(0 * step, 1 * step), mehTick); 
+           _scheduler.AddQueuedAction(() => UpdateReactors(1 * step, 2 * step), mehTick); 
+           _scheduler.AddQueuedAction(() => UpdateReactors(2 * step, 3 * step), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateReactors(3 * step, 4 * step), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateReactors(4 * step, 5 * step), mehTick);
 
-           _scheduler.AddQueuedAction(() => UpdateFuelTypes(0 * step, 1 * step), Tick); 
-           _scheduler.AddQueuedAction(() => UpdateFuelTypes(1 * step, 2 * step), Tick); 
-           _scheduler.AddQueuedAction(() => UpdateFuelTypes(2 * step, 3 * step), Tick);
-           _scheduler.AddQueuedAction(() => UpdateFuelTypes(3 * step, 4 * step), Tick);
-           _scheduler.AddQueuedAction(() => UpdateFuelTypes(4 * step, 5 * step), Tick);
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(0 * step, 1 * step), mehTick); 
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(1 * step, 2 * step), mehTick); 
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(2 * step, 3 * step), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(3 * step, 4 * step), mehTick);
+           _scheduler.AddQueuedAction(() => UpdateFuelTypes(4 * step, 5 * step), mehTick);
 
 
 
-            _scheduler.AddQueuedAction(() => ManageTurrets(0 * 1f / 2f, 1 * 1f / 2f), Tick); 
-            _scheduler.AddQueuedAction(() => ManageTurrets(1 * 1f / 2f, 2 * 1f / 2f), Tick); 
+            _scheduler.AddQueuedAction(() => ManageTurrets(0 * 1f / 2f, 1 * 1f / 2f), mehTick); 
+            _scheduler.AddQueuedAction(() => ManageTurrets(1 * 1f / 2f, 2 * 1f / 2f), mehTick); 
 
-           _scheduler.AddQueuedAction(() => CapFuel(0 * (twoStep), 1 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(1 * (twoStep), 2 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(2 * (twoStep), 3 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(3 * (twoStep), 4 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(4 * (twoStep), 5 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(5 * (twoStep), 6 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(6 * (twoStep), 7 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(7 * (twoStep), 8 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(8 * (twoStep), 9 * (twoStep)), Tick);
-            _scheduler.AddQueuedAction(() => CapFuel(9 * (twoStep), 10 * (twoStep)), Tick);
+           _scheduler.AddQueuedAction(() => CapFuel(0 * (twoStep), 1 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(1 * (twoStep), 2 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(2 * (twoStep), 3 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(3 * (twoStep), 4 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(4 * (twoStep), 5 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(5 * (twoStep), 6 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(6 * (twoStep), 7 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(7 * (twoStep), 8 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(8 * (twoStep), 9 * (twoStep)), mehTick);
+            _scheduler.AddQueuedAction(() => CapFuel(9 * (twoStep), 10 * (twoStep)), mehTick);
 
         }
 
@@ -200,28 +201,28 @@ namespace IngameScript
             _scheduler.AddScheduledAction(GetBlocks,1f/600f);
             _scheduler.AddScheduledAction(AutoDoors,1);
             const float step = 1f / 10f;
+            const double mehTick = 500 * Tick;
+            _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(5 * step, 6 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(6 * step, 7 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(7 * step, 8 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateVents(8 * step, 9 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateVents(9 * step, 10 * step), mehTick); 
 
-            _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(5 * step, 6 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(6 * step, 7 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(7 * step, 8 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateVents(8 * step, 9 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateVents(9 * step, 10 * step), 100*Tick); 
-
-            _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateBatteries(5 * step, 6 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(6 * step, 7 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(7 * step, 8 * step), 100*Tick); 
-            _scheduler.AddQueuedAction(() => UpdateBatteries(8 * step, 9 * step), 100*Tick);
-            _scheduler.AddQueuedAction(() => UpdateBatteries(9 * step, 10 * step), 100*Tick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(5 * step, 6 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(6 * step, 7 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(7 * step, 8 * step), mehTick); 
+            _scheduler.AddQueuedAction(() => UpdateBatteries(8 * step, 9 * step), mehTick);
+            _scheduler.AddQueuedAction(() => UpdateBatteries(9 * step, 10 * step), mehTick);
 
 
         }
@@ -351,19 +352,15 @@ namespace IngameScript
 
         private static void SwitchToggle(IEnumerable<IMyCubeBlock> groupBlocks, bool on = true)
         {
-            var myCubeBlocks = groupBlocks as IMyCubeBlock[] ?? groupBlocks.ToArray();
-            if (myCubeBlocks?.Any() == false)return;
+            var myCubeBlocks = groupBlocks as IMyCubeBlock[] ?? groupBlocks?.ToArray();
+            if (myCubeBlocks == null || !myCubeBlocks.Any())return;
             foreach (var block in myCubeBlocks.OfType<IMyFunctionalBlock>().Where(block=>!Closed(block))) block.Enabled = on;
         }
 
         private void GrabNewRemote()
         {
             if (_remotes?.Any() == false || _remotes == null) return;
-            foreach (var remote in _remotes)
-            {
-                _remoteControl = remote;
-                return;
-            }
+            _remoteControl = _remotes.FirstOrDefault(x=>!SkipBlock(x));
         }
 
         private void GrabNewAntenna()
@@ -399,11 +396,11 @@ namespace IngameScript
         {
             ParseIni();
             if (!_scriptInitialize) ScriptInitiate();
-            var x = NeedsRepair();
-            if (_handleRepair)SwitchToggle(_shipWelders, x || _alert > AlertState.High);
+            _damageDetected = NeedsRepair(out _damagedBlocks);
+            if (_handleRepair)SwitchToggle(_shipWelders, _damageDetected || _alert > AlertState.High || _shipWelders.Any(w=>w.IsWorking));
 
             if (!_powerManagement)return;
-            if (_fuelCount?.Values.Sum() < _lowFuel && BatteryLevel() < _rechargePoint)
+            if (_fuelCollection?.Select(m=>(double)m.Value).Sum() < _lowFuel && BatteryLevel() < _rechargePoint)
                 _powerFlagDelay = DateTime.Now;
             _powerFlag = (DateTime.Now - _powerFlagDelay).TotalSeconds < 5;
             if (_gravGens?.Any() == true) SwitchToggle(_gravGens, !_powerFlag);
@@ -496,14 +493,17 @@ namespace IngameScript
                         break;
                     }
 
+                    double setHeight;
+                    double setSpeed;
+                    bool giveControl;
                     OverrideThrust(false, Vector3D.Zero, 0, 0, 0);
                     _thrust = 0;
                     _autoPilot = Pilot.Cruise;
                     DampenersOnline(true);
-                    _cruiseDirection = t.Length >= 2 ? t[1].ToLower():"forward";
-                    _cruiseHeight = _inGravity && t.Length >= 4 ? double.Parse(t[3]) : _currentHeight;
-                    _cruiseSpeed = t.Length >= 3 ? double.Parse(t[2]): _currentSpeed;
-                    _giveControl = t.Length >= 5 && bool.Parse(t[4]);
+                    _cruiseDirection = t.Length>= 3 &&!string.IsNullOrEmpty(t[2]) ? t[2].ToLower():"forward";
+                    _cruiseHeight = _inGravity && t.Length >= 4 && double.TryParse(t[3],out setHeight)?  setHeight : _currentHeight;
+                    _cruiseSpeed = t.Length >= 2 && double.TryParse(t[1], out setSpeed) ? setSpeed: _currentSpeed;
+                    _giveControl = t.Length < 5 || !bool.TryParse(t[4], out giveControl) || giveControl;
                     break;
                 }
 
@@ -638,7 +638,7 @@ namespace IngameScript
                     _sb.Append("/");
                     break;
             }
-
+            _alertCounter = _alertCounter < 10 ? _alertCounter += 1 : 0;
             _sb.AppendLine();
             _sb.Append($"Hive Status: {_hive}");
             _sb.AppendLine();
@@ -650,14 +650,6 @@ namespace IngameScript
             _sbPower.AppendLine();
             _sbPower.Append($"PowerUsage = {Math.Round(j * 100)}%");
             _sbPower.AppendLine();
-
-            if (_lowBatteries != null && _lowBatteries?.Any() == true)
-            {
-                double lowBatteriesCount = _lowBatteries.Keys.Count;
-                double bat = _batteries.Count();
-                _sbPower.Append($"{Math.Round(lowBatteriesCount / bat * 100)}% of batteries in recharge");
-                _sbPower.AppendLine();
-            }
 
 
             if (_alert > AlertState.Clear)
@@ -671,14 +663,6 @@ namespace IngameScript
                     _sb.AppendLine();
                 }
             }
-
-            if (_lowBatteries?.Keys != null)
-                foreach (var battery in _lowBatteries.Keys)
-                {
-                    _sbPower.Append(
-                        $"  {battery.CustomName} {battery.ChargeMode} - {Math.Round(battery.CurrentStoredPower / battery.MaxStoredPower * 100)}%");
-                    _sbPower.AppendLine();
-                }
 
             if (_myProjector != null && _myProjector.IsProjecting)
             {
@@ -694,6 +678,16 @@ namespace IngameScript
                 _sb.AppendLine();
             }
 
+            if (_lowBlocks == null || _lowBlocks?.Keys.OfType<IMyBatteryBlock>().Any() != true) return;
+            double lowBatteriesCount = _lowBlocks.Keys.OfType<IMyBatteryBlock>().Count();
+            double bat = _batteries.Count();
+            _sbPower.Append($"{Math.Round(lowBatteriesCount / bat * 100)}% of batteries in recharge");
+            _sbPower.AppendLine();
+            foreach (var battery in _lowBlocks.Keys.OfType<IMyBatteryBlock>())
+            {
+                _sbPower.AppendLine(
+                    $"  {battery.CustomName} {battery.ChargeMode} - {Math.Round(battery.CurrentStoredPower / battery.MaxStoredPower * 100)}%");
+            }
 
 
         }
@@ -850,10 +844,10 @@ namespace IngameScript
                 }
 
                 reactor.UseConveyorSystem = false;
-                double count;
-                if (_fuelCount == null || !_fuelCount.TryGetValue(fuel, out count)) continue;
-                var lowCap = count / reactors.Count() < _lowFuel
-                    ? (MyFixedPoint) (count / reactors.Count())
+                MyFixedPoint count;
+                if (_fuelCollection == null || !_fuelCollection.TryGetValue(fuel, out count)) continue;
+                var lowCap = (double)count / reactors.Count() < _lowFuel
+                    ? (MyFixedPoint) ((double)count  / reactors.Count())
                     : (int) _lowFuel;
                 var reactorFuel = reactor.GetInventory().GetItemAmount(fuel);
                 if (Math.Abs((double) (reactorFuel - lowCap)) <= 0.1*(double)lowCap) continue;
@@ -861,28 +855,33 @@ namespace IngameScript
 
                 var transferBlocks = _gridBlocks?.Where(block =>
                         block.HasInventory && block.GetInventory().IsConnectedTo(reactor.GetInventory()))
-                    .ToArray();
-                var transferBlock = reactorFuel > lowCap
-                    ? transferBlocks?.OfType<IMyCargoContainer>()?.Where(block =>
-                        !block.GetInventory().IsFull &&
-                        reactor.GetInventory().CanTransferItemTo(block.GetInventory(), fuel)).FirstOrDefault()
-                    : transferBlocks
-                        ?.Where(block => block.GetInventory().CanTransferItemTo(reactor.GetInventory(), fuel) && block.GetInventory().ContainItems(y,fuel))
-                        .FirstOrDefault();
+                    .ToList();
+                if (transferBlocks?.Any()==false)continue;
 
-                if (transferBlock == null)continue;
-
+                IMyTerminalBlock transferBlock;
 
                 MyInventoryItem? z;
                 if (reactorFuel > lowCap)
                 {
+                    transferBlock = transferBlocks?.FirstOrDefault(block =>
+                        !block.GetInventory().IsFull &&
+                        reactor.GetInventory().CanTransferItemTo(block.GetInventory(), fuel));
                     z = reactor.GetInventory().FindItem(fuel);
                     if(z == null)continue;
-                    reactor.GetInventory().TransferItemTo(transferBlock.GetInventory(), z.Value, y);
+                    try
+                    {
+                        reactor.GetInventory().TransferItemTo(_dump.FirstOrDefault(x=>x.GetInventory().IsConnectedTo(reactor.GetInventory()))?.GetInventory(), z.Value, y);
+                    }
+                    catch (Exception e)
+                    {
+                        _sb.AppendLine(e.ToString());
+                    }
                     continue;
                 }
-
-                z = transferBlock.GetInventory().FindItem(fuel);
+                transferBlock = transferBlocks?.FirstOrDefault(block =>
+                        block.GetInventory().CanTransferItemTo(reactor.GetInventory(), fuel) &&
+                        block.GetInventory().ContainItems(y, fuel));
+                z = transferBlock?.GetInventory().FindItem(fuel);
                 if (z== null)continue;
                 transferBlock.GetInventory().TransferItemTo(reactor.GetInventory(), z.Value, y);
             }
@@ -890,8 +889,7 @@ namespace IngameScript
 
         private void FindFuel()
         {
-            _fuelCount.Clear();
-            var newDictionary = new Dictionary<MyItemType, double>();
+            _fuelCollection.Clear();
             var usedFuel = _reactorFuel.Select(x=>x.Value).ToArray();
 
             if (!usedFuel.Any())return;
@@ -905,11 +903,14 @@ namespace IngameScript
                         !Closed(block) && block.HasInventory && block.GetInventory().ItemCount != 0 &&
                         block.GetInventory().ContainItems(1, item)).Aggregate(count,
                         (current, block) => current + block.GetInventory().GetItemAmount(item));
-
-                newDictionary.Add(item, (double) count);
+                if (_fuelCollection.ContainsKey(item))
+                {
+                    _fuelCollection[item] = count;
+                    continue;
+                }
+                _fuelCollection.Add(item,  count);
             }
 
-            _fuelCount = newDictionary;
         }
 
 
@@ -935,7 +936,7 @@ namespace IngameScript
                 var battery = _batteries.ToList()[i];
                 if (SkipBlock(battery) || !battery.IsFunctional)
                 {
-                    _lowBatteries.Remove(battery);
+                    _lowBlocks.Remove(battery);
                     continue;
                 }
 
@@ -943,7 +944,7 @@ namespace IngameScript
 
                 float charge;
 
-                if (!_lowBatteries.TryGetValue(battery, out charge))
+                if (!_lowBlocks.TryGetValue(battery, out charge))
                 {
                     if (_highestChargedBattery == null && battery.HasCapacityRemaining)
                     {
@@ -952,14 +953,14 @@ namespace IngameScript
                     }
                     if (_currentMode == ProgramState.Recharge  && battery != _highestChargedBattery)
                     {
-                        _lowBatteries.Add(battery, 1f);
+                        _lowBlocks.Add(battery, 1f);
                         battery.ChargeMode = ChargeMode.Recharge;
                         continue;
                     }
 
                     if (!battery.HasCapacityRemaining||battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint )
                     {
-                        _lowBatteries.Add(battery, Math.Min(_rechargePoint * 2, rechargeAim));
+                        _lowBlocks.Add(battery, Math.Min(_rechargePoint * 2, rechargeAim));
                         continue;
                     }
 
@@ -975,7 +976,7 @@ namespace IngameScript
                 {
                     _highestChargedBattery = battery;
                     highestCharge = battery.CurrentStoredPower / battery.MaxStoredPower;
-                    _lowBatteries.Remove(battery);
+                    _lowBlocks.Remove(battery);
                     battery.ChargeMode = ChargeMode.Auto;
                     continue;
                 }
@@ -984,14 +985,14 @@ namespace IngameScript
                 if ((double) (battery.CurrentStoredPower / battery.MaxStoredPower) >= charge)
                 {
                     battery.ChargeMode = ChargeMode.Auto;
-                    _lowBatteries.Remove(battery);
+                    _lowBlocks.Remove(battery);
                     continue;
                 }
 
                 if (_alert != AlertState.Severe && (!_autoNavigate || _autoPilot <= Pilot.Disabled) &&
                     (!_inGravity || !(_currentSpeed >= 10))) continue;
                 battery.ChargeMode = ChargeMode.Auto;
-                _lowBatteries.Remove(battery);
+                _lowBlocks.Remove(battery);
 
             }
 
@@ -1093,24 +1094,24 @@ namespace IngameScript
         }
 
 //check for damaged blocks
-        private bool NeedsRepair()
+        private bool NeedsRepair(out List<IMyTerminalBlock> damagedBlocks)
         {
+            damagedBlocks = new List<IMyTerminalBlock>(50);
             if (!_gridBlocks.Any()) return false;
-            _damagedBlocks = _gridBlocks?.Where(block =>
+            damagedBlocks.Clear();
+            var dam = _gridBlocks?.Where(block =>
                 !Closed(block) && (block.IsBeingHacked || block.CubeGrid.GetCubeBlock(block.Position).CurrentDamage > 0));
+            damagedBlocks.AddRange(dam);
 
-            var damagedBlocks = _damagedBlocks as IMyTerminalBlock[] ?? _damagedBlocks.ToArray();
-            if (!damagedBlocks.Any())
+            if (!_damagedBlocks.Any())
             {
-                _damageDetected = false;
                 return false;
             }
-            _damageDetected = true;
+
             foreach (var block in damagedBlocks)
             {
                 if (_showOnHud)block.ShowOnHUD = true;
-                _sb.Append(block.CustomName + " is damaged and needs repair!");
-                _sb.AppendLine();
+                _sbDamages.AppendLine(block.CustomName + " is damaged and needs repair!");
             }
 
             return true;
@@ -1121,9 +1122,11 @@ namespace IngameScript
         private void UpdateProduction(float startProportion, float endProportion)
         {
             if (_productionBlocks?.Any() == false || !_controlProduction || _productionBlocks == null) return;
-            var prodBlocks = _productionBlocks.Where(block => !Closed(block)).ToList();
+            var prodBlocks = _productionBlocks?.Where(block => !SkipBlock(block)).ToList();
+            if (!prodBlocks.Any())return;
             var start = (int) (startProportion * prodBlocks.Count);
             var end = (int) (endProportion * prodBlocks.Count);
+            var someCargo = _dump.Where(x=>!Closed(x) && !x.GetInventory().IsFull).ToList();
             for (var i = start; i < end; ++i)
             {
                 var block = prodBlocks[i];
@@ -1131,22 +1134,53 @@ namespace IngameScript
                 if (!block.IsQueueEmpty) block.Enabled = true;
 
                 DateTime time;
-                if (_collection.TryGetValue(block, out time))
+                if (!_collection.TryGetValue(block, out time))
                 {
-                    if (block.IsProducing || !block.IsQueueEmpty)
-                    {
-                        _collection.Remove(block);
-                        _collection.Add(block, DateTime.Now);
-                        continue;
-                    }
-
-                    if ((DateTime.Now - time).TotalSeconds < ProductionDelay) continue;
-                    block.Enabled = false;
-                    _collection.Remove(block);
+                    if (!block.Enabled)continue;
+                    _collection.Add(block,DateTime.Now);
+                    continue;
+                }
+                if (block.IsProducing || !block.IsQueueEmpty)
+                {
+                    _collection[block] = DateTime.Now;
+                    continue;
                 }
 
-                if (!block.Enabled) continue;
-                _collection.Add(block, DateTime.Now);
+                if ((DateTime.Now - time).TotalSeconds < ProductionDelay) continue;
+                block.Enabled = false;
+                _collection.Remove(block);
+                var assembler = block as IMyAssembler;
+                var meh = new List<MyInventoryItem>();
+                var cargo = someCargo.FirstOrDefault(x =>
+                    x.GetInventory().IsConnectedTo(block.GetInventory()));
+                if (assembler != null && someCargo.Any())
+                {
+                    assembler.InputInventory.GetItems(meh);
+                    foreach (var item in meh.TakeWhile(item => cargo != null))
+                    {
+                        try
+                        {
+                            assembler.InputInventory.TransferItemTo(cargo?.GetInventory(),item,item.Amount);
+                        }
+                        catch (Exception e)
+                        {
+                            _sb.Append(e);
+                        }
+                    }
+                }
+                meh.Clear();
+                block.OutputInventory.GetItems(meh);
+                foreach (var item in meh.TakeWhile(item => cargo!=null))
+                {
+                    try
+                    {
+                        block.OutputInventory.TransferItemTo(cargo?.GetInventory(),item,item.Amount);
+                    }
+                    catch (Exception e)
+                    {
+                        _sb.Append(e);
+                    }
+                }
             }
         }
 
@@ -1155,36 +1189,35 @@ namespace IngameScript
         private void UpdateTanks(float startProportion, float endProportion)
         {
             if (_gasTanks?.Any() == false || !_controlGasSystem) return;
-            var gasTanks = _gasTanks?.Where(tank => tank.Enabled && !SkipBlock(tank)).ToList();
-            if (gasTanks == null) return;
-
+            var gasTanks = _gasTanks?.Where(tank =>!SkipBlock(tank)).ToList();
+            if (gasTanks == null || !gasTanks.Any()) return;
+            var genOnline = _gasGens != null && _gasGens.Any(x => x.Enabled);
             var start = (int) (startProportion * gasTanks.Count);
             var end = (int) (endProportion * gasTanks.Count);
-
-            var lowTanks = 0;
+            var refill = _rechargeWhenConnected && IsDocked() ? 1f : (float)_tankFillLevel;
             for (var i = start; i < end; ++i)
             {
                 var tank = gasTanks[i];
-
-                if (_rechargeWhenConnected && tank.FilledRatio < 1f && IsDocked())
+                float value;
+                if (!_lowBlocks.TryGetValue(tank, out value))
                 {
-                    tank.Stockpile = true;
-                    lowTanks += 1;
+                    if (tank.FilledRatio >= refill)
+                    {
+                        tank.Stockpile = false;
+                        tank.Enabled = !genOnline || (_inGravity && !_isStatic) || _currentSpeed > 5;
+                        continue;
+                    }
+                    tank.Enabled = true;
+                    tank.Stockpile = _isStatic;
+                    _lowBlocks.Add(tank,refill);
                     continue;
                 }
-
-                if (tank.FilledRatio >= _tankFillLevel)
-                {
-                    tank.Stockpile = false;
-                    continue;
-                }
-
-                tank.Stockpile = _isStatic;
-                lowTanks += 1;
-                tank.Enabled = true;
+                if (tank.FilledRatio < value)continue;
+                tank.Stockpile = false;
+                _lowBlocks.Remove(tank);
             }
 
-            _tankRefill = lowTanks > 0;
+            _tankRefill =_lowBlocks.Keys.OfType<IMyGasTank>().Any();
         }
 
 
@@ -1197,16 +1230,15 @@ namespace IngameScript
             foreach (var door in _doors.Where(door => !(door is IMyAirtightHangarDoor) && !SkipBlock(door)))
             {
                 DateTime time;
-                if (_collection.TryGetValue(door, out time))
+                if (!_collection.TryGetValue(door, out time))
                 {
-                    if ((DateTime.Now - time).TotalSeconds < _doorDelay) continue;
-                    door.CloseDoor();
-                    _collection.Remove(door);
+                    if (door.Status == DoorStatus.Closed || door.Status == DoorStatus.Closing) continue;
+                    _collection.Add(door, DateTime.Now);
                     continue;
                 }
-
-                if (door.Status == DoorStatus.Closed || door.Status == DoorStatus.Closing) continue;
-                _collection.Add(door, DateTime.Now);
+                if ((DateTime.Now - time).TotalSeconds < _doorDelay) continue;
+                door.CloseDoor();
+                _collection.Remove(door);
             }
         }
 
@@ -1289,7 +1321,7 @@ namespace IngameScript
         {
             if (!_capReactors)return;
             var reactors = _reactors?.Where(x =>!Closed(x) && x.GetInventory().ItemCount > 0).ToList();
-            if (_reactorFuel.Keys.Count > 10) _reactorFuel.Clear();
+            if (_reactorFuel.Keys.Count >= 10) _reactorFuel.Clear();
             if (reactors?.Any() == false||reactors==null)
             {
                 _reactorFuel.Clear();
@@ -1368,24 +1400,21 @@ namespace IngameScript
         {
             foreach (var connector in _connectors)
             {
-                if (Closed(connector) || connector.Status != MyShipConnectorStatus.Connectable ||
-                    connector.Status == MyShipConnectorStatus.Connected)
+                if (SkipBlock(connector) || connector.Status != MyShipConnectorStatus.Connectable)
                 {
                     _collection.Remove(connector);
                     continue;
                 }
 
                 DateTime time;
-                if (_collection.TryGetValue(connector, out time))
-                {
-                    if ((DateTime.Now - time).TotalSeconds < _connectDelay) continue;
-                    connector.Connect();
-                    _collection.Remove(connector);
-                }
-                else
+                if (!_collection.TryGetValue(connector, out time))
                 {
                     _collection.Add(connector, DateTime.Now);
+                    continue;
                 }
+                if ((DateTime.Now - time).TotalSeconds < _connectDelay) continue;
+                connector.Connect();
+                _collection.Remove(connector);
             }
         }
 
@@ -1414,37 +1443,72 @@ namespace IngameScript
         /// </summary>
         private void GetBlocks()
         {
+            if (_gridBlocks.Any(Closed))
+            {
+                var removeBlocks = _gridBlocks.Where(Closed);
+                foreach (var block in removeBlocks)
+                {
+                    _collection?.Remove(block);
+                    _lowBlocks?.Remove(block);
+                }
+            }
+
 
             _gridBlocks.Clear();
+            _dump.Clear();
+            _landingGears.Clear();
+            _soundBlocks.Clear();
+            _powerBlocks.Clear();
+            _gyros.Clear();
+            _productionBlocks.Clear();
+            _gravGens.Clear();
+            _batteries.Clear();
+            _reactors.Clear();
+            _gasTanks.Clear();
+            _airVents.Clear();
+            _textPanels.Clear();
+            _connectors.Clear();
+            _turrets.Clear();
+            _lights.Clear();
+            _doors.Clear();
+            _solars.Clear();
+            _windTurbine.Clear();
+            _cockpits.Clear();
+            _remotes.Clear();
+            _gasGens.Clear();
+            _thrusters.Clear();
+
             GridTerminalSystem.GetBlockGroupWithName(_welderGroup)?.GetBlocksOfType(_shipWelders);
             GridTerminalSystem.GetBlocksOfType(_gridBlocks, x => x.IsSameConstructAs(Me)
                                                                  && !StringContains(x.CustomData, "ignore") &&
                                                                  !StringContains(x.CustomName, "ignore"));
-            _myProjector = (IMyProjector) GridTerminalSystem.GetBlockWithName(_reProj);
 
-            if (_lowBatteries?.Any() == true)
-                foreach (var battery in _lowBatteries.Where(battery => Closed(battery.Key)))
-                    _lowBatteries.Remove(battery.Key);
-            _landingGears = _gridBlocks.OfType<IMyLandingGear>();
-            _soundBlocks = _gridBlocks.OfType<IMySoundBlock>();
-            _powerBlocks = _gridBlocks.OfType<IMyPowerProducer>();
-            _gyros = _gridBlocks.OfType<IMyGyro>();
-            _productionBlocks = _gridBlocks.OfType<IMyProductionBlock>();
-            _gravGens = _gridBlocks.OfType<IMyGravityGenerator>();
-            _batteries = _gridBlocks.OfType<IMyBatteryBlock>();
-            _reactors = _gridBlocks.OfType<IMyReactor>();
-            _gasTanks = _gridBlocks.OfType<IMyGasTank>();
-            _airVents = _gridBlocks.OfType<IMyAirVent>();
-            _textPanels = _gridBlocks.OfType<IMyTextPanel>();
-            _connectors = _gridBlocks.OfType<IMyShipConnector>();
-            _turrets = _gridBlocks.OfType<IMyLargeTurretBase>();
-            _lights = _gridBlocks.OfType<IMyLightingBlock>();
-            _doors = _gridBlocks.OfType<IMyDoor>();
-            _solars = _gridBlocks.OfType<IMySolarPanel>();
-            _cockpits = _gridBlocks.OfType<IMyShipController>();
-            _remotes = _gridBlocks.OfType<IMyRemoteControl>();
-            _gasGens = _gridBlocks.OfType<IMyGasGenerator>();
-            _thrusters = _gridBlocks.OfType<IMyThrust>();
+            _myProjector = GridTerminalSystem.GetBlockWithName(_reProj) as IMyProjector;
+
+            _landingGears.AddRange(_gridBlocks.OfType<IMyLandingGear>());
+            _soundBlocks.AddRange( _gridBlocks.OfType<IMySoundBlock>());
+            _powerBlocks.AddRange(_gridBlocks.OfType<IMyPowerProducer>());
+            _gyros.AddRange(_gridBlocks.OfType<IMyGyro>());
+            _productionBlocks.AddRange(_gridBlocks.OfType<IMyProductionBlock>());
+            _gravGens.AddRange(_gridBlocks.OfType<IMyGravityGenerator>());
+            _batteries.AddRange(_gridBlocks.OfType<IMyBatteryBlock>());
+            _reactors.AddRange(_gridBlocks.OfType<IMyReactor>());
+            _gasTanks.AddRange(_gridBlocks.OfType<IMyGasTank>());
+            _airVents.AddRange(_gridBlocks.OfType<IMyAirVent>());
+            _textPanels.AddRange(_gridBlocks.OfType<IMyTextPanel>());
+            _connectors.AddRange(_gridBlocks.OfType<IMyShipConnector>());
+            _turrets.AddRange(_gridBlocks.OfType<IMyLargeTurretBase>());
+            _lights.AddRange(_gridBlocks.OfType<IMyLightingBlock>());
+            _doors.AddRange(_gridBlocks.OfType<IMyDoor>());
+            _solars.AddRange(_gridBlocks.OfType<IMySolarPanel>());
+            _windTurbine.AddRange(_gridBlocks.OfType<IMyPowerProducer>().Where(x => x.BlockDefinition.TypeIdString.ToString().Substring(16).Equals("windturbine", StringComparison.OrdinalIgnoreCase)));
+            _cockpits.AddRange(_gridBlocks.OfType<IMyShipController>());
+            _remotes.AddRange(_gridBlocks.OfType<IMyRemoteControl>());
+            _gasGens.AddRange(_gridBlocks.OfType<IMyGasGenerator>());
+            _thrusters.AddRange(_gridBlocks.OfType<IMyThrust>());
+            var dump = _gridBlocks.OfType<IMyCargoContainer>()
+                .Where(x => StringContains(x.DisplayName,"dump" ) || StringContains(x.CustomData, "dump"));
+            _dump.AddRange(dump);
                 
             foreach (var block in _gridBlocks)
             {
@@ -1794,10 +1858,10 @@ namespace IngameScript
                 case Pilot.Disabled:
                     break;
                 case Pilot.Cruise:
-                    Cruise(_cruiseDirection, _cruiseHeight, _cruiseSpeed,_giveControl);
+                    Cruise(_cruiseSpeed,_cruiseDirection, _cruiseHeight, _giveControl);
                     return;
                 case Pilot.Land:
-                    LevelShip(false, 0, 0);
+                    LevelShip(false);
                     Land();
                     if (!(_currentHeight < 20) || !(_currentSpeed < 1)) return;
                     OverrideThrust(false, Vector3D.Zero, 0, 0);
@@ -1810,11 +1874,11 @@ namespace IngameScript
                     return;
             }
 
-            if (!_combatFlag)
-                LevelShip(true, 0, 0);
-            if (_combatFlag && !CheckPlayer() && !_myTarget.IsEmpty() && !IsDocked() && !_inGravity)
+            if (!_combatFlag && _inGravity)
+                LevelShip(true);
+            if (_combatFlag && !CheckPlayer() && !_myTarget.IsEmpty() && !IsDocked() && !_inGravity && !_hive)
             {
-                if (Vector3D.Distance(_myTarget.Position, _remoteControl.GetPosition()) > 600)
+                if (Vector3D.Distance(_myTarget.Position, Me.CubeGrid.GetPosition()) > 400)
                     SetDestination(_myTarget.Position, true, 50);
                 else _remoteControl.SetAutoPilotEnabled(false);
             }
@@ -1830,7 +1894,7 @@ namespace IngameScript
                 controller.DampenersOverride = enable;
         }
 
-        private void SetDestination(Vector3D destination, bool enableCollision, float speed)
+        private void SetDestination(Vector3D destination, bool enableCollision = true, float speed = 50)
         {
             _remoteControl.ClearWaypoints();
             _remoteControl.FlightMode = FlightMode.OneWay;
@@ -1839,9 +1903,10 @@ namespace IngameScript
             _remoteControl.Direction = Base6Directions.Direction.Forward;
             _remoteControl.SetCollisionAvoidance(enableCollision);
             _remoteControl.SetAutoPilotEnabled(true);
+            _remoteControl.WaitForFreeWay = true;
         }
 
-        private void Cruise(string dir, double height = 2500, double speed = 100, bool giveControl = true)
+        private void Cruise(double speed = 50, string dir = "forward", double height = 2500, bool giveControl = true)
         {
             giveControl = !_inGravity || giveControl;
             Vector3D direction;
@@ -1946,11 +2011,21 @@ namespace IngameScript
 
         private void Land()
         {
+            if (_remoteControl == null)
+            {
+                GrabNewRemote();
+                return;
+            }
+
+            var down = _remoteControl.WorldMatrix.GetDirectionVector(
+                _remoteControl.WorldMatrix.GetClosestDirection(_remoteControl.GetNaturalGravity()));
+
             foreach (var remote in _remotes.Where(remote => !Closed(remote))) remote.SetAutoPilotEnabled(false);
 
             if (_currentHeight > _landingBrakeHeight)
             {
-                OverrideThrust(true, _remoteControl.WorldMatrix.Down, 0.001f, _currentSpeed);
+                OverrideThrust(true, down, 0.001f, _currentSpeed);
+                DampenersOnline(false);
                 return;
             }
 
@@ -1981,7 +2056,7 @@ namespace IngameScript
         private void OverrideThrust(bool enableOverride, Vector3D direction, float thrustModifier,
             double currentSpeed = 100, double maximumSpeed = 110)
         {
-            foreach (var thruster in _thrusters.Where(thruster => thruster != null && thruster.IsFunctional))
+            foreach (var thruster in _thrusters.Where(thruster => !Closed(thruster) && thruster.IsFunctional))
                 if (enableOverride && currentSpeed < maximumSpeed)
                 {
                     if (thruster.WorldMatrix.Forward == direction * -1)
@@ -1999,7 +2074,7 @@ namespace IngameScript
                 }
         }
 
-        private void LevelShip(bool checkPlayer, float setPitch, float setRoll)
+        private void LevelShip(bool checkPlayer, float setPitch = 0, float setRoll = 0, float setYaw = 0)
         {
             if (checkPlayer && CheckPlayer() || !_inGravity)
             {
@@ -2017,6 +2092,8 @@ namespace IngameScript
                        Math.Sign(Vector3D.Dot(Vector3D.Right, flattenedUpVector));
             var pitch = (float) VectorMath.AngleBetween(forward, _remoteControl.WorldMatrix.Forward) *
                         Math.Sign(Vector3D.Dot(up, _remoteControl.WorldMatrix.Forward));
+            var yaw = (float) VectorMath.AngleBetween(left, _remoteControl.WorldMatrix.Forward) *
+                        Math.Sign(Vector3D.Dot(Vector3.Right, _remoteControl.WorldMatrix.Forward));
             _pitchDelay = _inGravity && Math.Abs(pitch - setPitch) >= 0.05
                 ? Math.Min(_pitchDelay += 1, 25)
                 : Math.Max(_pitchDelay -= 1, 0);
@@ -2025,7 +2102,66 @@ namespace IngameScript
                 : Math.Max(_rollDelay -= 1, 0);
             var pitchOverride = Math.Abs(pitch) > 0.90 ? 0.25f : 0.05f;
             var rollOverride = Math.Abs(roll) > 0.90 ? 0.25f : 0.05f;
-            foreach (var gyro in _gyros)
+            var yawOverride = Math.Abs(roll) > 0.90 ? 0.25f : 0.05f;
+
+            for (var i = 0; i < Math.Max(1,(_gyros.Count()/2)); i++)
+            {
+                var gyro = _gyros.Where(g=>!SkipBlock(g)).ToList()[i];
+                if (_pitchDelay == 0 && _rollDelay == 0)
+                {
+                    gyro.GyroOverride = false;
+                    gyro.Pitch = 0f;
+                    gyro.Roll = 0f;
+                    gyro.Yaw = 0f;
+                    return;
+                }
+
+                gyro.Enabled = true;
+                gyro.GyroOverride = _pitchDelay > 1 || _rollDelay > 1;
+                gyro.Yaw = 0f;
+                gyro.Pitch = 0f;
+                gyro.Roll = 0f;
+
+
+                //Pitch
+                if (_pitchDelay > 1)
+                {
+                    if (_remoteControl.WorldMatrix.Right == gyro.WorldMatrix.Left)
+                        gyro.Pitch = pitch > setPitch ? -pitchOverride : pitchOverride;
+                    if (_remoteControl.WorldMatrix.Right == gyro.WorldMatrix.Right)
+                        gyro.Pitch = pitch > setPitch ? pitchOverride : -pitchOverride;
+                    if (_remoteControl.WorldMatrix.Right == gyro.WorldMatrix.Down)
+                        gyro.Yaw = pitch > setPitch ? -pitchOverride : pitchOverride;
+                    if (_remoteControl.WorldMatrix.Right == gyro.WorldMatrix.Up)
+                        gyro.Yaw = pitch > setPitch ? pitchOverride : -pitchOverride;
+                    if (_remoteControl.WorldMatrix.Right == gyro.WorldMatrix.Forward)
+                        gyro.Roll = pitch > setPitch ? -pitchOverride : pitchOverride;
+                    if (_remoteControl.WorldMatrix.Right == gyro.WorldMatrix.Backward)
+                        gyro.Roll = pitch > setPitch ? pitchOverride : -pitchOverride;
+                }
+
+                //Roll
+                if (_rollDelay > 1)
+                {
+                    if (_remoteControl.WorldMatrix.Forward == gyro.WorldMatrix.Forward)
+                        gyro.Roll = roll > setRoll ? rollOverride : -rollOverride;
+                    if (_remoteControl.WorldMatrix.Forward == gyro.WorldMatrix.Backward)
+                        gyro.Roll = roll > setRoll ? -rollOverride : rollOverride;
+                    if (_remoteControl.WorldMatrix.Forward == gyro.WorldMatrix.Down)
+                        gyro.Yaw = roll > setRoll ? rollOverride : -rollOverride;
+                    if (_remoteControl.WorldMatrix.Forward == gyro.WorldMatrix.Up)
+                        gyro.Yaw = roll > setRoll ? -rollOverride : rollOverride;
+                    if (_remoteControl.WorldMatrix.Forward == gyro.WorldMatrix.Left)
+                        gyro.Pitch = roll > setRoll ? rollOverride : -rollOverride;
+                    if (_remoteControl.WorldMatrix.Forward == gyro.WorldMatrix.Right)
+                        gyro.Pitch = roll > setRoll ? -rollOverride : rollOverride;
+                }
+
+                //Yaw
+
+
+            }
+            /*foreach (var gyro in _gyros)
             {
                 if (_pitchDelay == 0 && _rollDelay == 0)
                 {
@@ -2078,7 +2214,8 @@ namespace IngameScript
                 }
 
                 //Yaw
-            }
+
+            }*/
         }
 
         private bool CheckPlayer()
@@ -2086,45 +2223,49 @@ namespace IngameScript
             return _cockpits.Any(cockpit => cockpit.IsUnderControl);
         }
 
+
         #endregion
 
         #region Block Lists
 
-        private IEnumerable<IMyDoor> _doors;
-        private IEnumerable<IMyTextSurface> _textSurfaces;
-        private IEnumerable<IMyProductionBlock> _productionBlocks;
-        private IEnumerable<IMyReactor> _reactors;
+        private List<IMyDoor> _doors = new List<IMyDoor>();
+        private List<IMyTextSurface> _textSurfaces = new List<IMyTextSurface>();
+        private List<IMyProductionBlock> _productionBlocks = new List<IMyProductionBlock>();
+        private List<IMyReactor> _reactors = new List<IMyReactor>();
         private readonly List<IMyShipWelder> _shipWelders = new List<IMyShipWelder>();
-        private IEnumerable<IMyAirVent> _airVents;
-        private IEnumerable<IMyGasGenerator> _gasGens;
-        private IEnumerable<IMyGasTank> _gasTanks;
-        private IEnumerable<IMyGravityGenerator> _gravGens;
+        private List<IMyAirVent> _airVents = new List<IMyAirVent>() ;
+        private List<IMyGasGenerator> _gasGens = new List<IMyGasGenerator>();
+        private List<IMyGasTank> _gasTanks = new List<IMyGasTank>();
+        private List<IMyGravityGenerator> _gravGens = new List<IMyGravityGenerator>();
         private readonly List<IMyTerminalBlock> _gridBlocks = new List<IMyTerminalBlock>();
-        private IEnumerable<IMyThrust> _thrusters;
-        private IEnumerable<IMyTerminalBlock> _damagedBlocks;
-        private IEnumerable<IMyPowerProducer> _powerBlocks;
-        private IEnumerable<IMyLightingBlock> _lights;
-        private IEnumerable<IMySolarPanel> _solars;
-        private IEnumerable<IMyTextPanel> _textPanels;
-        private IEnumerable<IMyLargeTurretBase> _turrets;
-        private IEnumerable<IMyRemoteControl> _remotes;
-        private IEnumerable<IMyShipConnector> _connectors;
-        private IEnumerable<IMyShipController> _cockpits;
-        private IEnumerable<IMyBatteryBlock> _batteries;
-        private IEnumerable<IMyGyro> _gyros;
-        private IEnumerable<IMySoundBlock> _soundBlocks;
-        private IEnumerable<IMyLandingGear> _landingGears;
+        private List<IMyThrust> _thrusters = new List<IMyThrust>();
+        private List<IMyCargoContainer> _dump = new List<IMyCargoContainer>(10);
+        private List<IMyTerminalBlock> _damagedBlocks = new List<IMyTerminalBlock>(10);
+        private List<IMyPowerProducer> _powerBlocks = new List<IMyPowerProducer>();
+        private List<IMyLightingBlock> _lights = new List<IMyLightingBlock>();
+        private List<IMySolarPanel> _solars = new List<IMySolarPanel>();
+        private List<IMyPowerProducer> _windTurbine = new List<IMyPowerProducer>();
+        private List<IMyTextPanel> _textPanels = new List<IMyTextPanel>();
+        private List<IMyLargeTurretBase> _turrets = new List<IMyLargeTurretBase>();
+        private List<IMyRemoteControl> _remotes = new List<IMyRemoteControl>();
+        private List<IMyShipConnector> _connectors = new List<IMyShipConnector>();
+        private List<IMyShipController> _cockpits= new List<IMyShipController>();
+        private List<IMyBatteryBlock> _batteries = new List<IMyBatteryBlock>();
+        private List<IMyGyro> _gyros = new List<IMyGyro>();
+        private List<IMySoundBlock> _soundBlocks = new List<IMySoundBlock>();
+        private List<IMyLandingGear> _landingGears = new List<IMyLandingGear>();
 
 //dictionary
-        private readonly Dictionary<IMyBatteryBlock, float> _lowBatteries = new Dictionary<IMyBatteryBlock, float>();
+        private readonly Dictionary<IMyCubeBlock, float> _lowBlocks = new Dictionary<IMyCubeBlock, float>();
         private readonly Dictionary<IMyCubeBlock, DateTime> _collection = new Dictionary<IMyCubeBlock, DateTime>();
-        private readonly Dictionary<string, MyItemType> _reactorFuel = new Dictionary<string, MyItemType>();
+        private readonly Dictionary<string, MyItemType> _reactorFuel = new Dictionary<string, MyItemType>(10);
 
         #endregion
 
         #region Fields
 
         private readonly StringBuilder _sb = new StringBuilder();
+        private readonly StringBuilder _sbDamages = new StringBuilder();
         private readonly StringBuilder _sbPower = new StringBuilder();
         private readonly StringBuilder _status = new StringBuilder();
 
@@ -2186,6 +2327,7 @@ namespace IngameScript
         private const int ProjectorShutoffDelay = 30;
         private int _pitchDelay;
         private int _rollDelay;
+        private int _yawDelay;
         private float _thrust;
         private double _currentHeight;
         private double _currentSpeed;
@@ -2221,8 +2363,7 @@ namespace IngameScript
         private readonly MyIni _ini = new MyIni();
         private readonly List<string> _iniSections = new List<string>();
         private readonly StringBuilder _customDataSb = new StringBuilder();
-        private Dictionary<MyItemType, double> _fuelCount = new Dictionary<MyItemType, double>();
-        private Dictionary<IMyReactor, MyItemType> _fuelCollection;
+        private Dictionary<MyItemType, MyFixedPoint> _fuelCollection = new Dictionary<MyItemType, MyFixedPoint>();
         private const double Tick = 1.0 / 60.0;
         private readonly Scheduler _scheduler;
 
