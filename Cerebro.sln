@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.28803.352
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cerebro", "Cerebro.csproj", "{CA93D86C-BE0A-4B86-A635-8AA149F2B247}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cerebro_MainScript", "Cerebro_MainScript.csproj", "{CA93D86C-BE0A-4B86-A635-8AA149F2B247}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cerebro_SlaveScript", "..\Cerebro_SlaveScript\Cerebro_SlaveScript.csproj", "{8F049FA6-BB64-4EA1-8515-45C1A03A4C37}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -12,6 +14,8 @@ Global
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{CA93D86C-BE0A-4B86-A635-8AA149F2B247}.Debug|x64.ActiveCfg = Debug|x64
 		{CA93D86C-BE0A-4B86-A635-8AA149F2B247}.Debug|x64.Build.0 = Debug|x64
+		{8F049FA6-BB64-4EA1-8515-45C1A03A4C37}.Debug|x64.ActiveCfg = Debug|x64
+		{8F049FA6-BB64-4EA1-8515-45C1A03A4C37}.Debug|x64.Build.0 = Debug|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

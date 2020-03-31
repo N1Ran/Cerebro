@@ -1,12 +1,24 @@
 ﻿Cerebro by N1Ran
 
 Commands
+->Note:  while some of the commands are not case sensitive, it is advice to use lower case when entering commands
 *Main
 
-*Navigation
-	-TakeOff: "takeoff (speed) (angle) (givecontrol)"  ie  takeoff 100 45 false
-	-Cruise: "cruise speed height "
+*Power
+	->Power On: "power on"
+	->Power off: "power off"
+	->Recharge: "power recharge"
 
-*PowerStates
+*Docking
+	->Dock: "dock" -- This will switch to dock mode and recharge batteries if "RechargeWhenConnected" is set to true;
+
+*Navigation
+	->TakeOff: "takeoff (boolAllowPlayerControl) (angle) (speed)"  ie  takeoff false 100 45
+	->Cruise: "cruise (boolAllowPlayerControl) (speed) (height) (direction)"
+
+*Weapon System
+	Turrets can indivitually be set to trigger base on Aggression number.  This number is randomly set an script's first run.  You can make changes to individual turret settings via its
+	customData.  Available turret duty is as follow: Designator, AntiMissile, and Antipersonnel.  
+
 
 
