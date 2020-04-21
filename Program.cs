@@ -1,31 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Net.Mime;
-using System.Net.Sockets;
 using System.Text;
-using Sandbox.Common.ObjectBuilders;
-using Sandbox.Common.ObjectBuilders.Definitions;
-using Sandbox.Game.Screens.Helpers;
-using Sandbox.ModAPI;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
-using SpaceEngineers.Game.Entities.Blocks;
 using SpaceEngineers.Game.ModAPI.Ingame;
 using VRage;
 using VRage.Game;
 using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ModAPI.Ingame.Utilities;
-using VRage.Game.ObjectBuilders.Definitions;
 using VRageMath;
-using VRageRender;
-using VRageRender.Messages;
 using ContentType = VRage.Game.GUI.TextPanel.ContentType;
 using IMyAirtightHangarDoor = Sandbox.ModAPI.Ingame.IMyAirtightHangarDoor;
 using IMyAssembler = Sandbox.ModAPI.Ingame.IMyAssembler;
 using IMyBatteryBlock = Sandbox.ModAPI.Ingame.IMyBatteryBlock;
 using IMyCargoContainer = Sandbox.ModAPI.Ingame.IMyCargoContainer;
+using IMyCubeBlock = VRage.Game.ModAPI.Ingame.IMyCubeBlock;
 using IMyDoor = Sandbox.ModAPI.Ingame.IMyDoor;
 using IMyFunctionalBlock = Sandbox.ModAPI.Ingame.IMyFunctionalBlock;
 using IMyGasGenerator = Sandbox.ModAPI.Ingame.IMyGasGenerator;
@@ -231,6 +221,7 @@ namespace IngameScript
             _scheduler.AddScheduledAction(GetBlocks,1f/150f);
             _scheduler.AddScheduledAction(FindFuel, 1f/50f);
             _scheduler.AddScheduledAction(AutoDoors,1);
+            _scheduler.AddScheduledAction(ReturnToCenter,100);
             _scheduler.AddScheduledAction(Alerts,0.1);
             _scheduler.AddScheduledAction(AlertLights,1);
 
@@ -322,6 +313,8 @@ namespace IngameScript
 
             _scheduler.AddScheduledAction(GetBlocks,1f/600f);
             _scheduler.AddScheduledAction(AutoDoors,1);
+            _scheduler.AddScheduledAction(ReturnToCenter,1);
+
             const float step = 1f / 10f;
             const double mehTick = 500 * Tick;
             _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), mehTick);
@@ -486,6 +479,7 @@ namespace IngameScript
 
                 blocksOff.Add(funcBlock);
             }
+
 
             if (!_isStatic)
                 LockLandingGears();
@@ -674,6 +668,22 @@ namespace IngameScript
                     {
                         Echo("Navigation is not enabled");
                         break;
+                    }
+
+                    if (IsConnectedToStatic() || _currentMode == ProgramState.Docked || _currentMode == ProgramState.Recharge)
+                    {
+                        Echo("Currently Docked");
+                        break;
+                    }
+
+                    if (t[1].Equals("toggle", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (_autoPilot == Pilot.Cruise)
+                        {
+                            Echo("Ending Trip");
+                            EndTrip();
+                            break;
+                        }
                     }
 
                     double setHeight;
@@ -1113,38 +1123,44 @@ namespace IngameScript
 
                 float charge;
 
-                if (_lowBlocks.TryGetValue(battery, out charge))
+                if (!_lowBlocks.TryGetValue(battery, out charge))
                 {
-                    if (battery == _highestChargedBattery || (battery.CurrentStoredPower / battery.MaxStoredPower) >= charge || _autoPilot > Pilot.Disabled || _currentSpeed > 25)
+                    if (battery.CurrentStoredPower / battery.MaxStoredPower >= highestCharge ||
+                        (_highestChargedBattery == null && battery.HasCapacityRemaining))
                     {
-                    
+                        _highestChargedBattery = battery;
+                        battery.ChargeMode = ChargeMode.Auto;
                         _lowBlocks.Remove(battery);
+                        highestCharge = battery.CurrentStoredPower / battery.MaxStoredPower;
+                        continue;
                     }
 
-                    battery.ChargeMode = ChargeMode.Recharge;
-                    continue;
+                    if (_currentMode == ProgramState.Recharge)
+                    {
+                        _lowBlocks[battery] = 1f;
+                        continue;
+                    }
+
+                    if (allowRecharge && (!battery.HasCapacityRemaining||battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint ))
+                    {
+                        _lowBlocks[battery] = 0.5f;
+                        continue;
+                    }
+
+                    battery.ChargeMode = _isStatic && BatteryLevel() > Math.Max(_rechargePoint,0.5f) ? ChargeMode.Discharge : ChargeMode.Auto;
+
                 }
 
-                if (battery.CurrentStoredPower / battery.MaxStoredPower > highestCharge ||
-                    (_highestChargedBattery == null && battery.HasCapacityRemaining))
+                if (battery == _highestChargedBattery || (battery.CurrentStoredPower / battery.MaxStoredPower) >= charge || _autoPilot > Pilot.Disabled || _currentSpeed > 25)
                 {
-                    _highestChargedBattery = battery;
+                    
+                    _lowBlocks.Remove(battery);
+                    battery.ChargeMode = ChargeMode.Auto;
                     continue;
                 }
 
-                if (_currentMode == ProgramState.Recharge)
-                {
-                    _lowBlocks[battery] = 1f;
-                    continue;
-                }
+                battery.ChargeMode = ChargeMode.Recharge;
 
-                if (allowRecharge && (!battery.HasCapacityRemaining||battery.CurrentStoredPower / battery.MaxStoredPower < _rechargePoint ))
-                {
-                    _lowBlocks[battery] = 0.5f;
-                    continue;
-                }
-
-                battery.ChargeMode = _isStatic && BatteryLevel() > Math.Max(_rechargePoint,0.5f) ? ChargeMode.Discharge : ChargeMode.Auto;
 
 
             }
@@ -1202,12 +1218,19 @@ namespace IngameScript
             return _connectors.Any(connector => connector.Status == MyShipConnectorStatus.Connected);
         }
 
+        private  bool IsConnectedToStatic()
+        {
+            GridTerminalSystem.GetBlocks(_allBlocks);
+            return _allBlocks.Any(x =>x.CubeGrid.IsStatic);
+        }
+
+
         private bool IsDocked()
         {
-            return !_isStatic && _connectors.Any(connector =>
-                       connector.Status == MyShipConnectorStatus.Connected &&
-                       connector.OtherConnector.CubeGrid.IsStatic);
+            return !_isStatic && IsConnectedToStatic() && _connectors.Any(connector =>
+                       connector.Status == MyShipConnectorStatus.Connected);
         }
+
 
 
         /// <summary>
@@ -1252,10 +1275,6 @@ namespace IngameScript
             return oxygenState < 0.75f;
         }
 
-        private  bool IsConnectedToStatic()
-        {
-            return _allBlocks.Any(x => x.CubeGrid.IsStatic);
-        }
 
         /// <summary>
         /// check if grid needs repair and returns damaged blocks
@@ -1483,8 +1502,8 @@ namespace IngameScript
             _turretIni.Clear();
             _turretIni.TryParse(turret.CustomData);
 
-            var minPriority = Math.Max(_defaultAggression * _aggressionMultiplier, _turrets.Count/2);
-            var priority = new Random().Next(_defaultAggression + 1, minPriority);
+            var minPriority = Math.Min(_defaultAggression * _aggressionMultiplier, _turrets.Count/2);
+            var priority = new Random().Next(_defaultAggression - 1, minPriority);
 
             _turretIniSections.Clear();
             _turretIni.GetSections(_turretIniSections);
@@ -1507,7 +1526,7 @@ namespace IngameScript
             _elevationMin = _turretIni.Get(INI_SECTION_ROTATION, INI_ROTATION_ELEVMIN).ToDouble(_elevationMin);
             _elevationMax = _turretIni.Get(INI_SECTION_ROTATION, INI_ROTATION_ELEVMAX).ToDouble(_elevationMax);
 
-            if (_aggressionTrigger > _turrets.Count / 2 ||_aggressionTrigger == 0 && string.IsNullOrEmpty(_turretDuty))
+            if (_aggressionTrigger > minPriority || _aggressionTrigger == 0 && string.IsNullOrEmpty(_turretDuty))
             {
                 _aggressionTrigger = priority;
             }
@@ -1555,14 +1574,12 @@ namespace IngameScript
         /// <returns></returns>
         private static bool InSight(IMyLargeTurretBase turret, MyDetectedEntityInfo target)
         {
-            var aziVector = Vector3D.Cross(turret.WorldMatrix.Forward, turret.WorldMatrix.Left);
-            var eleVector = Vector3D.Cross(turret.WorldMatrix.Forward, turret.WorldMatrix.Up);
 
-            var targetForwardAngle = VectorMath.AngleBetween(eleVector, target.Position);
-            var targetSideAngle = VectorMath.AngleBetween(aziVector, target.Position);
+            var elevateAngle = VectorMath.AngleBetween(turret.WorldMatrix.Forward, target.Position);
+            var azimuthAngle = VectorMath.AngleBetween(turret.WorldMatrix.Up, target.Position);
             var targetDistance = Vector3D.Distance(turret.GetPosition(), target.Position);
 
-            return targetForwardAngle <= _elevationMax && targetForwardAngle >= _elevationMin  && targetSideAngle <= _azimuthMax && targetSideAngle >= _azimuthMin  && targetDistance <= turret.Range;
+            return targetDistance <= turret.Range;
         }
         
         /// <summary>
@@ -1581,6 +1598,10 @@ namespace IngameScript
             for (var i = start; i < end; ++i)
             {
                 var turret = turrets[i];
+                if (turret.IsUnderControl)
+                {
+                    continue;
+                }
 
                 TurretParseIni(turret);
                 
@@ -1600,42 +1621,21 @@ namespace IngameScript
                         if (Math.Abs((DateTime.Now - time).TotalSeconds) >= 1) continue;
                         _collection.Remove(turret);
                         turret.ResetTargetingToDefault();
+                        turret.EnableIdleRotation = false;
                     }
+
+                    if (_turretDuty == _antimissileName)
+                        turret.Enabled = _combatFlag;
                     TurretSettingsDefault();
                     continue;
                 }
 
-                /*
-                //Make sure designators are always online
-                if (StringContains(turret.CustomName, _designatorName) ||
-                    StringContains(turret.CustomName, _antipersonnelName) ||
-                    StringContains(turret.CustomName, _antimissileName))
-                {
-                    SetTurret(turret);
-                    if (!turret.HasTarget)
-                    {
-                        DateTime time;
-                        if (!_collection.TryGetValue(turret, out time))
-                        {
-                            _collection[turret] = DateTime.Now;
-                            continue;
-                        }
-                        if (Math.Abs((DateTime.Now - time).TotalSeconds) >= 1) continue;
-                        _collection.Remove(turret);
-                        turret.ResetTargetingToDefault();
-                    }
-                    TurretSettingsDefault();
-                    continue;
-                }
-                */
                 
                 //compare number in custom data to aggression and turn off if higher
-                turret.Enabled = Math.Abs(turret.Elevation) > 0 || Math.Abs(turret.Azimuth) > 0 || _aggressionTrigger < _aggression || turret.IsUnderControl;
+                turret.Enabled = _aggressionTrigger < _aggression;
 
 
-                if ((!turret.HasTarget || !turret.IsAimed ||
-                     turret.GetTargetedEntity().Relationship != MyRelationsBetweenPlayerAndBlock.Enemies) &&
-                    turret.Enabled)
+                if (!turret.HasTarget || turret.GetTargetedEntity().Relationship != MyRelationsBetweenPlayerAndBlock.Enemies)
                 {
                     Refocus(turret);
                 }
@@ -1652,28 +1652,54 @@ namespace IngameScript
         /// </summary>
         private void Refocus(IMyLargeTurretBase turret)
         {
-            if (turret.IsShooting && !turret.IsUnderControl)turret.SetValueBool("Shoot",false);
 
-            if (_myTargets?.Any(x => x.Relationship == MyRelationsBetweenPlayerAndBlock.Enemies) == false)
+            if (turret.IsShooting)turret.SetValueBool("Shoot",false);
+
+            var possibleTargets = _myTargets.Where(x =>
+                x.Relationship == MyRelationsBetweenPlayerAndBlock.Enemies && InSight(turret, x)).ToArray();
+
+            if (!possibleTargets.Any())
             {
-                turret.ResetTargetingToDefault();
-                turret.EnableIdleRotation = false;
-                turret.Elevation = 0;
-                turret.Azimuth = 0;
-                turret.SyncAzimuth();
-                turret.SyncElevation();
+                turret.Enabled = false;
+                if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01) return;
+
+                if (!_turretsToCenter.Contains(turret)) _turretsToCenter.Add(turret);
                 return;
             }
 
+            turret.SetTarget(possibleTargets[new Random().Next(0,possibleTargets.Length)].Position);
 
-            for (var i = 0; i < _myTargets?.Count; i++)
+        }
+
+        private void ReturnToCenter()
+        {
+            if (_turretsToCenter.Count == 0)return;
+
+
+            for (var i = 0; i < _turretsToCenter.Count; i++)
             {
-                var target = _myTargets[i];
-                if (!InSight(turret,target))continue;
-                turret.SetTarget(target.Position);
-                return;
+                var turret = _turretsToCenter[i];
+                if (Closed(turret) || turret.IsUnderControl)
+                {
+                    _turretsToCenter.RemoveAtFast(i);
+                    continue;
+                }
+                if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01 )
+                {
+                    _turretsToCenter.RemoveAtFast(i);
+                    turret.ResetTargetingToDefault();
+                    continue;
+                }
+
+                turret.Elevation = turret.Elevation > 0 ? turret.Elevation - 0.001f : turret.Elevation + 0.001f;
+                turret.Azimuth = turret.Azimuth > 0 ? turret.Azimuth - 0.001f : turret.Azimuth + 0.001f;
+                turret.SyncElevation();
+                turret.SyncAzimuth();
+                turret.EnableIdleRotation = false;
+
             }
         }
+
 
         /// <summary>
         /// Set custom turrets targets
@@ -1764,6 +1790,7 @@ namespace IngameScript
         {
             float juice = 0;
             float totalJuice = 0;
+
             foreach (var battery in _batteries.Where(battery => !SkipBlock(battery)))
             {
                 juice += battery.CurrentStoredPower;
@@ -2032,6 +2059,7 @@ namespace IngameScript
 
         #endregion
 
+
         #region Vector math
 
         private static class VectorMath
@@ -2227,8 +2255,7 @@ namespace IngameScript
         private void AttackTarget()
         {
             if (!_myTargets.Any()) return;
-            var test = new Random();
-            var ran = test.Next(1, _myTargets.Count);
+            var ran = new Random().Next(1, _myTargets.Count);
             if (_hasAntenna && _myAntenna.IsFunctional)
                 IGC.SendBroadcastMessage($"Attack {_myTargets[ran].Position}", _myAntenna.Radius);
         }
@@ -2724,6 +2751,7 @@ namespace IngameScript
         private List<IMySolarPanel> _solars = new List<IMySolarPanel>();
         private List<IMyPowerProducer> _windTurbine = new List<IMyPowerProducer>();
         private List<IMyLargeTurretBase> _turrets = new List<IMyLargeTurretBase>();
+        private List<IMyLargeTurretBase> _turretsToCenter = new List<IMyLargeTurretBase>();
         private List<IMyRemoteControl> _remotes = new List<IMyRemoteControl>();
         private List<IMyShipConnector> _connectors = new List<IMyShipConnector>();
         private List<IMyShipController> _cockpits= new List<IMyShipController>();
@@ -2999,6 +3027,11 @@ namespace IngameScript
         }
 
         #endregion
+
+        public static class Log
+        {
+            
+        }
 
     }
 }
