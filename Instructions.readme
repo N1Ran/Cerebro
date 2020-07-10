@@ -13,14 +13,15 @@ Commands
 *Power
 	->Power On: "power on"
 	->Power off: "power off"
+	->Power Toggle: "power toggle"
 	->Recharge: "power recharge"
 
 *Docking
 	->Dock: "dock" -- This will switch to dock mode and recharge batteries if "RechargeWhenConnected" is set to true;
 
 *Navigation
-	->TakeOff: "takeoff (boolAllowPlayerControl) (angle) (speed)"  ie  takeoff false 100 45
-	->Cruise: "cruise (boolAllowPlayerControl) (speed) (height) (direction)"
+	->TakeOff: "takeoff (boolAllowPlayerControl) (speed) (angle)"  ie  takeoff false 100 45
+	->Cruise: "cruise (boolAllowPlayerControl) (speed) (height)"  ie cruise true 40 1700.  You can also use "cruise toggle" to switch cruise on to current ship speed and height
 
 *Weapon System
 	Turrets can indivitually be set to trigger base on Aggression number.  This number is randomly set an script's first run.  You can make changes to individual turret settings via its
