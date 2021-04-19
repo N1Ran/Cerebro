@@ -61,7 +61,6 @@ namespace IngameScript
         {
 
             Save();
-
             if (updateType == UpdateType.Terminal || updateType == UpdateType.Trigger)
             {
                GetCommandState(arg, out _currentMode);
@@ -74,15 +73,22 @@ namespace IngameScript
                 return;
             }
 
+            if (_gridBlocks.Count == 0)
+            {
+                Load();
+                return;
+            }
 
             ProgramMaintenance();
             _runtimeTracker.AddRuntime();
             _scheduler.Update();
             _runtimeTracker.AddInstructions();
+            if (_scheduler.IsEmpty()) return;
             Echo(Log.Write(false));
             Echo(_runtimeTracker.Write());
 
         }
+
 
         #region Status
         /// <summary>
@@ -147,8 +153,8 @@ namespace IngameScript
                     }
                     break;
                 case ProgramState.Recharge:
-                    Log.Info($"Recharging --- {_batteryLevel * 100:n2}%");
-                    Log.Info($"Current Power Usage: {_currentOutput:n2}");
+                    Log.Info($"Recharging --- {_batteryLevel * 100:n2}%", LogTitle.Power);
+                    Log.Info($"Current Power Usage: {_currentOutput:n2}", LogTitle.Power);
                     if (!_setRechargeState) SetSchedule(ProgramState.Recharge);
                     if (_isDocked) break;
                     _currentMode = ProgramState.PowerOn;
@@ -163,6 +169,11 @@ namespace IngameScript
                     _currentMode = ProgramState.Normal;
                     break;
                 case ProgramState.NavigationActive:
+                    if (Me.CubeGrid.IsStatic)
+                    {
+                        _currentMode = ProgramState.Normal;
+                        return;
+                    }
                     if (_autoPilot == Pilot.Disabled)
                     {
                         _scheduler.Reset();
@@ -195,6 +206,7 @@ namespace IngameScript
         /// </summary>
         private void Load()
         {
+            Echo("Loading..............");
             GetBlocks();
             CheckBlocks();
             Setup();
@@ -438,7 +450,7 @@ namespace IngameScript
                 {
                     if (!_autoNavigate || _remoteControl == null)
                     {
-                        Log.Error("Navigation is not enabled");
+                        Log.Error("Navigation is not enabled",LogTitle.Navigation);
                         break;
                     }
                     EndTrip();
@@ -496,13 +508,13 @@ namespace IngameScript
                 {
                     if (!_autoNavigate || _remoteControl == null)
                     {
-                        Log.Error("Navigation is not enabled");
+                        Log.Error("Navigation is not enabled",LogTitle.Navigation);
                         break;
                     }
 
                     if (!_inGravity)
                     {
-                        Log.Error("Landing sequence unable to run");
+                        Log.Error("Landing sequence unable to run", LogTitle.Navigation);
                         break;
                     }
                     EndTrip();
@@ -514,12 +526,12 @@ namespace IngameScript
                 {
                     if (!_autoNavigate || _remoteControl == null)
                     {
-                        Log.Error("Navigation is not enabled");
+                        Log.Error("Navigation is not enabled", LogTitle.Navigation);
                         break;
                     }
                     if (_isConnectedToStatic || _currentMode == ProgramState.Docked || _currentMode == ProgramState.Recharge)
                     {
-                        Log.Error("Currently Docked");
+                        Log.Error("Currently Docked", LogTitle.Navigation);
                         break;
                     }
 
@@ -527,7 +539,7 @@ namespace IngameScript
                     {
                         if (_autoPilot == Pilot.Cruise)
                         {
-                            Log.Error("Ending Trip");
+                            Log.Error("Ending Trip", LogTitle.Navigation);
                             EndTrip();
                             break;
                         }
@@ -942,6 +954,12 @@ namespace IngameScript
                 _lowBlocks.Remove(battery);
                 return;
             }
+
+            if (_combatFlag)
+            {
+                battery.ChargeMode = ChargeMode.Discharge;
+                return;
+            }
             var highestCharge = _highestChargedBattery?.CurrentStoredPower / _highestChargedBattery?.MaxStoredPower ??
                                 0f;
 
@@ -949,54 +967,49 @@ namespace IngameScript
 
             var currentPercentCharge = battery.CurrentStoredPower / battery.MaxStoredPower;
 
-                var allowRecharge = _lowBlocks.Keys.OfType<IMyBatteryBlock>().Count() < maxRechargeBatteries;
+            var allowRecharge = _lowBlocks.Keys.OfType<IMyBatteryBlock>().Count() < maxRechargeBatteries;
 
-                if (SkipBlock(battery) || !battery.IsFunctional)
+
+            battery.Enabled = true;
+
+            float charge;
+
+            if (!_lowBlocks.TryGetValue(battery, out charge))
+            {
+                if (currentPercentCharge >= highestCharge ||
+                    (_highestChargedBattery == null && battery.HasCapacityRemaining))
                 {
-                    _lowBlocks.Remove(battery);
-                    return;
-                }
-
-                battery.Enabled = true;
-
-                float charge;
-
-                if (!_lowBlocks.TryGetValue(battery, out charge))
-                {
-                    if (currentPercentCharge >= highestCharge ||
-                        (_highestChargedBattery == null && battery.HasCapacityRemaining))
-                    {
-                        _highestChargedBattery = battery;
-                        battery.ChargeMode = ChargeMode.Auto;
-                        return;
-                    }
-
-                    if (_currentMode == ProgramState.Recharge)
-                    {
-                        _lowBlocks[battery] = 1f;
-                        return;
-                    }
-
-                    if (allowRecharge && (!battery.HasCapacityRemaining|| currentPercentCharge < _rechargePoint ))
-                    {
-                        _lowBlocks[battery] = 0.5f;
-                        return;
-                    }
-
-                    battery.ChargeMode = _isStatic && _batteryLevel > Math.Max(_rechargePoint,0.5f) ? ChargeMode.Discharge : ChargeMode.Auto;
-
-                }
-
-                if (battery == _highestChargedBattery || currentPercentCharge >= charge || _autoPilot > Pilot.Disabled || _currentSpeed > 25)
-                {
-                    
-                    _lowBlocks.Remove(battery);
+                    _highestChargedBattery = battery;
                     battery.ChargeMode = ChargeMode.Auto;
                     return;
                 }
 
-                battery.ChargeMode = ChargeMode.Recharge;
-                _batteryHighestCharge = highestCharge > _rechargePoint ? highestCharge - 0.1f : 1f;
+                if (_currentMode == ProgramState.Recharge)
+                {
+                    _lowBlocks[battery] = 1f;
+                    return;
+                }
+
+                if (allowRecharge && (!battery.HasCapacityRemaining|| currentPercentCharge < _rechargePoint ))
+                {
+                    _lowBlocks[battery] = 0.5f;
+                    return;
+                }
+
+                battery.ChargeMode = _isStatic && _batteryLevel > Math.Max(_rechargePoint,0.5f) ? ChargeMode.Discharge : ChargeMode.Auto;
+
+            }
+
+            if (battery == _highestChargedBattery || currentPercentCharge >= charge || _autoPilot > Pilot.Disabled || _currentSpeed > 25)
+            {
+                
+                _lowBlocks.Remove(battery);
+                battery.ChargeMode = ChargeMode.Auto;
+                return;
+            }
+
+            battery.ChargeMode = ChargeMode.Recharge;
+            _batteryHighestCharge = highestCharge > _rechargePoint ? highestCharge - 0.1f : 1f;
         }
 
         /// <summary>
@@ -1083,6 +1096,7 @@ namespace IngameScript
         /// <param name="endProportion"></param>
         private void UpdateProduction(float startProportion, float endProportion)
         {
+            if (_currentMode == ProgramState.NavigationActive) return;
             if (!_controlProduction || _productionBlocks.Count == 0 ) return;
 
             if (_productionBlocks.Count == 1)
@@ -1118,6 +1132,34 @@ namespace IngameScript
 
             DateTime time;
 
+            if (blockIsRefinery)
+            {
+                var inputItemType = new List<MyItemType>();
+                block.InputInventory.GetAcceptedItems(inputItemType);
+                double meh = 0;
+                foreach (var item in inputItemType)
+                {
+                    HashSet<IMyTerminalBlock> itemContainers;
+                    if (!TryFindItem(item, out itemContainers)) continue;
+                    var chosenContainer =
+                        itemContainers.FirstOrDefault(x => x.GetInventory().CanTransferItemTo(blockInvent, item));
+                    HashSet<MyInventoryItem> inventItems;
+                    if (chosenContainer == null || !_cargoDict.TryGetValue(chosenContainer, out inventItems)) continue;
+                    var inventItem = inventItems.FirstOrDefault(x=>x.Type == item);
+                    var maxToPull =(MyFixedPoint) ((1000 * (Math.Min(Math.Abs((double)(block.InputInventory.MaxVolume - block.InputInventory.CurrentVolume)),(double)inventItem.Amount))) / inputItemType.Count);
+                    meh +=(double) maxToPull;
+                    chosenContainer.GetInventory().TransferItemTo(block.InputInventory, inventItem, maxToPull);
+                }
+
+                block.CustomData = inputItemType.Count.ToString();
+                if (block.InputInventory.ItemCount > 0) 
+                {
+                    block.Enabled = true;
+                    _collection[block] = DateTime.Now;
+                    return;
+                }
+            }
+
             if (!_collection.TryGetValue(block, out time))
             {
                 if (!block.Enabled)
@@ -1136,24 +1178,6 @@ namespace IngameScript
             {
                 block.Enabled = true;
                 _collection[block] = DateTime.Now;
-                if (blockIsRefinery)
-                {
-                    var inputItemType = new List<MyItemType>();
-                    block.InputInventory.GetAcceptedItems(inputItemType);
-
-                    foreach (var item in inputItemType)
-                    {
-                        HashSet<IMyTerminalBlock> itemContainers;
-                        if (!TryFindItem(item, out itemContainers)) continue;
-                        var chosenContainer =
-                            itemContainers.FirstOrDefault(x => x.GetInventory().CanTransferItemTo(blockInvent, item));
-                        HashSet<MyInventoryItem> inventItems;
-                        if (chosenContainer == null || !_cargoDict.TryGetValue(chosenContainer, out inventItems)) continue;
-                        var inventItem = inventItems.FirstOrDefault(x=>x.Type == item);
-                        var maxToPull = (MyFixedPoint)(Math.Min(Math.Abs((double)(block.InputInventory.MaxVolume - block.InputInventory.CurrentVolume)),(double)inventItem.Amount));
-                        chosenContainer.GetInventory().TransferItemTo(block.InputInventory, inventItem, maxToPull);
-                    }
-                }
 
                 if (block.OutputInventory.CurrentVolume > (MyFixedPoint)(0.75 * (double)block.OutputInventory.MaxVolume))
                     EmptyProductionBlock(block);
@@ -1383,7 +1407,7 @@ namespace IngameScript
             if (!vent.CanPressurize && needsAir)
             {
                 if (_showOnHud)vent.ShowOnHUD = true;
-                Log.Error(vent.CustomName + " Can't Pressurize");
+                Log.Warn(vent.CustomName + " Can't Pressurize",LogTitle.Production);
                 GasBlockParseIniDefault();
                 return;
             }
@@ -1732,7 +1756,7 @@ namespace IngameScript
                 {
                     Refocus(turret);
                 }
-
+                
                 turret.SetValueBool("Shoot", false);
 
                 if (turret.GetInventory().ItemCount != 0 || !turret.HasInventory || !_showOnHud) continue;
@@ -2014,7 +2038,7 @@ namespace IngameScript
                 if (_powerFlag)
                     Log.Info(string.Join("\n",
                         $"Batteries in Recharge {_lowBlocks.Keys.OfType<IMyBatteryBlock>().Count()}/{_batteries.Count}",
-                        $"Number of reactors online {_reactors.Count(x=>x.Enabled)}/{_reactors.Count} "));
+                        $"Number of reactors online {_reactors.Count(x=>x.Enabled)}/{_reactors.Count} "), LogTitle.Power);
             }
 
             if (_powerFlag)
@@ -2245,8 +2269,8 @@ namespace IngameScript
                 return false;
             }
 
-            Log.Info($"{damagedBlocks.Count} blocks damaged");
-            Log.Warn($"{damagedBlocks.Count} blocks in need of repair:" + "\n"+string.Join("\n",damagedBlocks.Select(x=>x.CustomName)));
+            Log.Info($"{damagedBlocks.Count} blocks damaged", LogTitle.Damages);
+            Log.Warn($"{damagedBlocks.Count} blocks in need of repair:" + "\n"+string.Join("\n",damagedBlocks.Select(x=>x.CustomName)),LogTitle.Damages,LogType.Warn);
 
             return true;
         }
@@ -2566,7 +2590,7 @@ namespace IngameScript
         /// </summary>
         private class Scheduler
         {
-            public ScheduledAction _currentlyQueuedAction;
+            private ScheduledAction _currentlyQueuedAction;
             private bool _firstRun = true;
 
             private readonly bool _ignoreFirstRun;
@@ -2631,7 +2655,6 @@ namespace IngameScript
                 if (_currentlyQueuedAction == null) return;
                 _currentlyQueuedAction.Update(deltaTime);
 
-                //if (!_currentlyQueuedAction.JustRan) return;
                 // If we should recycle, add it to the end of the queue
                 if (!_currentlyQueuedAction.DisposeAfterRun || !_currentlyQueuedAction.JustRan)
                     _queuedActions.Enqueue(_currentlyQueuedAction);
@@ -2793,19 +2816,19 @@ namespace IngameScript
                 case Pilot.Cruise:
                     Log.Info(string.Join("\n",
                         $"Cruise Speed: {Math.Round(_setSpeed,0)}",
-                        $"Cruise Height: {Math.Round(_cruiseHeight,0)}"));
+                        $"Cruise Height: {Math.Round(_cruiseHeight,0)}"), LogTitle.Navigation);
                     //_sbStatus.AppendLine($"Cruise set to {_setSpeed}m/s");
                     Cruise(_setSpeed, _cruiseHeight, _giveControl);
                     return;
                 case Pilot.Land:
-                    Log.Info($"AutoPilot Landing");
+                    Log.Info($"AutoPilot Landing", LogTitle.Navigation);
                     //_sbStatus.AppendLine($"AutoPilot Landing");
                     RotateGrid(false);
                     _downSpeed = VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(_gravityVec));
                     Land();
                     return;
                 case Pilot.Takeoff:
-                    Log.Info(string.Join("\n",$"AutoPilot exiting planetary gravity",$"Set Speed: {Math.Round(_setSpeed,0)}",$"SetAngle: {_takeOffAngle}"));
+                    Log.Info(string.Join("\n",$"AutoPilot exiting planetary gravity",$"Set Speed: {Math.Round(_setSpeed,0)}",$"SetAngle: {_takeOffAngle}"),LogTitle.Navigation);
                     //_sbStatus.AppendLine($"AutoPilot exiting planetary gravity");
                     _upSpeed = - VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(_gravityVec));
                     if (IsLandingGearLocked())LockLandingGears(false);
@@ -3639,12 +3662,20 @@ namespace IngameScript
         #endregion
 
         #region Script Logging
+
+        public class LogFile
+        {
+            public LogType Type { get; set; }
+            public LogTitle Title { get; set; }
+            public string Description { get; set; }
+        }
+
         public static class Log
         {
             static StringBuilder _builder = new StringBuilder();
-            static List<string> _errorList = new List<string>();
-            static List<string> _warningList = new List<string>();
-            static List<string> _infoList = new List<string>();
+            static List<LogFile> _errorList = new List<LogFile>();
+            static List<LogFile> _warningList = new List<LogFile>();
+            static List<LogFile> _infoList = new List<LogFile>();
             const int _logWidth = 530; //chars, conservative estimate
 
             public static void Clear()
@@ -3655,23 +3686,23 @@ namespace IngameScript
                 _infoList.Clear();
             }
 
-            public static void Error(string text)
+            public static void Error(string text, LogTitle title = LogTitle.None, LogType type = LogType.Info)
             {
-                 _errorList.Add(text);
+                 _errorList.Add(new LogFile{Description = text, Title = title, Type = type});
             }
 
-            public static void Warn(string text)
+            public static void Warn(string text, LogTitle title = LogTitle.None, LogType type = LogType.Info)
             {
-                _warningList.Add(text);
+                _warningList.Add(new LogFile{Description = text, Title = title, Type = type});
             }
 
-            public static void Info(string text)
+            public static void Info(string text, LogTitle title = LogTitle.None, LogType type = LogType.Info)
             {
-                _infoList.Add(text);
+                _infoList.Add(new LogFile{Description = text, Title = title, Type = type});
             }
 
 
-            public static string Write(string type = "Info",bool preserveLog = false)
+            public static string Write(LogType type = LogType.Info, LogTitle title = LogTitle.None, bool preserveLog = false)
             {
 
                 if (_errorList.Count != 0 && _warningList.Count != 0 && _infoList.Count != 0)
@@ -3680,37 +3711,131 @@ namespace IngameScript
 
                 switch (type)
                 {
-                    case "Info":
+                    case LogType.Info:
                     {
                         if (_infoList.Count != 0)
                         {
                             for (int i = 0; i < _infoList.Count; i++)
                             {
-                                WriteElement(i + 1, "Info", _infoList[i]);
+                                if (title > LogTitle.None)
+                                {
+                                    switch (title)
+                                    {
+                                        case LogTitle.Power:
+                                            if (_infoList[i].Title != LogTitle.Power) continue;
+                                            WriteElement(i+1,LogType.Info,LogTitle.Power,_infoList[i]);
+                                            break;
+                                        case LogTitle.Production:
+                                            if (_infoList[i].Title != LogTitle.Production) continue;
+                                            WriteElement(i+1,LogType.Info,LogTitle.Production,_infoList[i]);
+                                            break;
+                                        case LogTitle.Navigation:
+                                            if (_infoList[i].Title != LogTitle.Navigation) continue;
+                                            WriteElement(i+1,LogType.Info,LogTitle.Navigation,_infoList[i]);
+                                            break;
+                                        case LogTitle.Damages:
+                                            if (_infoList[i].Title != LogTitle.Damages) continue;
+                                            WriteElement(i+1,LogType.Info,LogTitle.Damages,_infoList[i]);
+                                            break;
+                                        case LogTitle.Combat:
+                                            if (_infoList[i].Title != LogTitle.Combat) continue;
+                                            WriteElement(i+1,LogType.Info,LogTitle.Combat,_infoList[i]);
+                                            break;
+                                        default:
+                                            WriteElement(i + 1, LogType.Info, _infoList[i]);
+                                            break;
+
+                                    }
+                                    continue;
+                                }
+                                WriteElement(i + 1, LogType.Info, _infoList[i]);
                                 //if (i < _infoList.Count - 1)
                             }
                         }
                         break;
                     }
-                    case "Error":
-                    {
-                        if (_errorList.Count != 0)
-                        {
-                            for (int i = 0; i < _errorList.Count; i++)
-                            {
-                                WriteElement(i + 1, "Error", _errorList[i]);
-                                //if (i < _infoList.Count - 1)
-                            }
-                        }
-                        break;
-                    }
-                    case "Warning":
+                    case LogType.Warn:
                     {
                         if (_warningList.Count != 0)
                         {
                             for (int i = 0; i < _warningList.Count; i++)
                             {
-                                WriteElement(i + 1, "Info", _warningList[i]);
+                                if (title > LogTitle.None)
+                                {
+                                    switch (title)
+                                    {
+                                        case LogTitle.Power:
+                                            if (_warningList[i].Title != LogTitle.Power) continue;
+                                            WriteElement(i+1,LogType.Warn,LogTitle.Power,_warningList[i]);
+                                            break;
+                                        case LogTitle.Production:
+                                            if (_warningList[i].Title != LogTitle.Production) continue;
+                                            WriteElement(i+1,LogType.Warn,LogTitle.Production,_warningList[i]);
+                                            break;
+                                        case LogTitle.Navigation:
+                                            if (_warningList[i].Title != LogTitle.Navigation) continue;
+                                            WriteElement(i+1,LogType.Warn,LogTitle.Navigation,_warningList[i]);
+                                            break;
+                                        case LogTitle.Damages:
+                                            if (_warningList[i].Title != LogTitle.Damages) continue;
+                                            WriteElement(i+1,LogType.Warn,LogTitle.Damages,_warningList[i]);
+                                            break;
+                                        case LogTitle.Combat:
+                                            if (_warningList[i].Title != LogTitle.Combat) continue;
+                                            WriteElement(i+1,LogType.Warn,LogTitle.Combat,_warningList[i]);
+                                            break;
+                                        default:
+                                            WriteElement(i + 1, LogType.Warn, _warningList[i]);
+                                            break;
+                                    }
+                                    continue;
+                                }
+
+                                WriteElement(i + 1, LogType.Warn, _warningList[i]);
+                                //if (i < _infoList.Count - 1)
+                            }
+                        }
+                        break;
+                    }
+                    case LogType.Error:
+                    {
+                        if (_errorList.Count != 0)
+                        {
+                            for (int i = 0; i < _errorList.Count; i++)
+                            {
+                                if (title > LogTitle.None)
+                                {
+                                    switch (title)
+                                    {
+                                        case LogTitle.Power:
+                                            if (_errorList[i].Title != LogTitle.Power) continue;
+                                            WriteElement(i+1,LogType.Error,LogTitle.Power,_errorList[i]);
+                                            break;
+                                        case LogTitle.Production:
+                                            if (_errorList[i].Title != LogTitle.Production) continue;
+                                            WriteElement(i+1,LogType.Error,LogTitle.Production,_errorList[i]);
+                                            break;
+                                        case LogTitle.Navigation:
+                                            if (_errorList[i].Title != LogTitle.Navigation) continue;
+                                            WriteElement(i+1,LogType.Error,LogTitle.Navigation,_errorList[i]);
+                                            break;
+                                        case LogTitle.Damages:
+                                            if (_errorList[i].Title != LogTitle.Damages) continue;
+                                            WriteElement(i+1,LogType.Error,LogTitle.Damages,_errorList[i]);
+                                            break;
+                                        case LogTitle.Combat:
+                                            if (_errorList[i].Title != LogTitle.Combat) continue;
+                                            WriteElement(i+1,LogType.Error,LogTitle.Combat,_errorList[i]);
+                                            break;
+                                        default:
+                                            WriteElement(i + 1, LogType.Error, _errorList[i]);
+                                            break;
+
+                                    }
+                                    continue;
+                                }
+
+                                WriteElement(i + 1, LogType.Error, _errorList[i]);
                                 //if (i < _infoList.Count - 1)
                             }
                         }
@@ -3723,7 +3848,7 @@ namespace IngameScript
                         {
                             for (int i = 0; i < _infoList.Count; i++)
                             {
-                                WriteElement(i + 1, "Info", _infoList[i]);
+                                WriteElement(i + 1, LogType.Info, _infoList[i]);
                                 //if (i < _infoList.Count - 1)
                             }
                         }
@@ -3748,7 +3873,7 @@ namespace IngameScript
                 {
                     for (int i = 0; i < _errorList.Count; i++)
                     {
-                        WriteElement(i + 1, "ERROR", _errorList[i]);
+                        WriteElement(i + 1, LogType.Error, _errorList[i]);
                         //if (i < _errorList.Count - 1)
                     }
                 }
@@ -3757,7 +3882,7 @@ namespace IngameScript
                 {
                     for (int i = 0; i < _warningList.Count; i++)
                     {
-                        WriteElement(i + 1, "WARNING", _warningList[i]);
+                        WriteElement(i + 1, LogType.Warn, _warningList[i]);
                         //if (i < _warningList.Count - 1)
                     }
                 }
@@ -3766,7 +3891,7 @@ namespace IngameScript
                 {
                     for (int i = 0; i < _infoList.Count; i++)
                     {
-                        WriteElement(i + 1, "Info", _infoList[i]);
+                        WriteElement(i + 1, LogType.Info, _infoList[i]);
                         //if (i < _infoList.Count - 1)
                     }
                 }
@@ -3779,11 +3904,24 @@ namespace IngameScript
                 return output;
             }
 
-            private static void WriteElement(int index, string header, string content)
+            private static void WriteElement(int index, LogType header, LogFile content)
             {
                 WriteLine($"{header} {index}:");
 
-                string wrappedContent = TextHelper.WrapText(content, 1, _logWidth);
+                string wrappedContent = TextHelper.WrapText(content.Description, 1, _logWidth);
+                string[] wrappedSplit = wrappedContent.Split('\n');
+
+                foreach (var line in wrappedSplit)
+                {
+                    _builder.Append("  ").Append(line).Append('\n');
+                }
+            }
+
+            private static void WriteElement(int index, LogType header, LogTitle title, LogFile content)
+            {
+                WriteLine($"{header} {title} {index}:");
+
+                string wrappedContent = TextHelper.WrapText(content.Description, 1, _logWidth);
                 string[] wrappedSplit = wrappedContent.Split('\n');
 
                 foreach (var line in wrappedSplit)
@@ -3972,21 +4110,17 @@ namespace IngameScript
                 panel.Enabled = true;
                 if (StringContains(panel.CustomName, "Damage"))
                 {
-                    panel.WriteText(Log.Write("Damage"));
+                    panel.WriteText(Log.Write(LogType.Warn, LogTitle.Damages));
                     continue;
                 }
                 if (StringContains(panel.CustomName, "Status"))
                 {
-                    panel.WriteText(Log.Write(false));
-                    continue;
-                }
-                if (StringContains(panel.CustomName, "Debug"))
-                {
-                    panel.WriteText(Log.Write( "Debug"));
+                    panel.WriteText(Log.Write(LogType.Info));
                     continue;
                 }
                 if (StringContains(panel.CustomName, "Power"))
                 {
+                    panel.WriteText(Log.Write(LogType.Warn,LogTitle.Power));
                     continue;
                 }
 
@@ -4014,6 +4148,8 @@ namespace IngameScript
             {
                 var sb = new StringBuilder();
 
+                sb.AppendLine(Log.Write(LogType.Warn, LogTitle.Damages, false));
+
                 return sb.ToString();
             }
 
@@ -4027,7 +4163,7 @@ namespace IngameScript
         }
         #endregion
 
-        #region Program States 
+        #region mdk preserve
 
         private enum Pilot
         {
@@ -4059,6 +4195,22 @@ namespace IngameScript
             NavigationActive
         }
 
+        internal enum LogType
+        {
+            Info,
+            Warn,
+            Error
+        }
+
+        internal enum LogTitle
+        { 
+            None,
+            Power,
+            Production,
+            Navigation,
+            Damages,
+            Combat
+        }
         #endregion
 
     }
