@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections;
 using System.Linq;
 using System.Text;
+using IngameScript.MDK;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
 using SpaceEngineers.Game.ModAPI.Ingame;
 using VRage;
+using VRage.Collections;
 using VRage.Game;
 using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ModAPI.Ingame.Utilities;
@@ -50,8 +53,6 @@ namespace IngameScript
             Load();
         }
 
-
-
         /// <summary>
         /// Main Method. Runs each tick
         /// </summary>
@@ -78,14 +79,14 @@ namespace IngameScript
                 Load();
                 return;
             }
-
             ProgramMaintenance();
+            if (_scheduler.IsEmpty()) return;
             _runtimeTracker.AddRuntime();
             _scheduler.Update();
             _runtimeTracker.AddInstructions();
-            if (_scheduler.IsEmpty()) return;
-            Echo(Log.Write(false));
-            Echo(_runtimeTracker.Write());
+            //Echo(Log.Write(false));
+            Echo(Log.Write(LogType.Info));
+            Echo($"Loaded Actions: {_scheduler.LoadedActionsCount()} \n {_runtimeTracker.Write()}");
 
         }
 
@@ -108,7 +109,11 @@ namespace IngameScript
             switch (_currentMode)
             {
                 case ProgramState.ShuttingOff:
-                    PowerDown();
+                    if (!PowerDown())
+                    {
+                        _currentMode = ProgramState.Normal;
+                        return;
+                    }
                     _scheduler.AddScheduledAction(AutoDoors,1);
                     _currentMode = ProgramState.PoweredOff;
                     break;
@@ -116,22 +121,18 @@ namespace IngameScript
                     PowerOn();
                     break;
                 case ProgramState.Docked:
-                    if (!_isDocked)
-                    {
-                        _currentMode = ProgramState.Normal;
-                        SetSchedule(_currentMode);
-                        break;
-                    }
                     _setRechargeState = false;
-                    PowerDown();
+                    if (!PowerDown())break;
                     if (_rechargeWhenConnected)
                     {
-                        LockLandingGears();
+                        SwitchStateLandingGears();
                         _currentMode = ProgramState.Recharge;
                     }
                     if (_isDocked) break;
                     _currentMode = ProgramState.PowerOn;
-                    LockLandingGears(false);
+                    _scheduler.Reset();
+                    SwitchStateLandingGears(false);
+                    SwitchStateConnectors(false);
                     break;
                 case ProgramState.Normal:
                     if (_scheduler.IsEmpty())SetSchedule(ProgramState.Normal);
@@ -158,7 +159,8 @@ namespace IngameScript
                     if (!_setRechargeState) SetSchedule(ProgramState.Recharge);
                     if (_isDocked) break;
                     _currentMode = ProgramState.PowerOn;
-                    LockLandingGears(false);
+                    SwitchStateLandingGears(false);
+                    _scheduler.Reset();
                     break;
                 case ProgramState.PoweredOff:
                     Log.Info($"Current Power Usage: {_currentOutput:n2}");
@@ -210,7 +212,6 @@ namespace IngameScript
             GetBlocks();
             CheckBlocks();
             Setup();
-
             var settings = Storage.Split(':');
 
             if (settings.Length < 1) return;
@@ -229,7 +230,16 @@ namespace IngameScript
 
             if (settings.Length > 5)
                 double.TryParse(settings[4], out _setSpeed);
-            
+
+            wcPbApi = new WcPbApi();
+            try
+            {
+                _enableWC = wcPbApi.Activate(Me);
+            }
+            catch (Exception e){
+                Log.Error("WeaponCore Api is failing! \n Make sure WeaponCore is enabled!",LogTitle.Combat); 
+                Log.Error(e.StackTrace,LogTitle.Combat);
+            }            
             SetSchedule(_currentMode);
 
         }
@@ -256,14 +266,14 @@ namespace IngameScript
         }
 
         /// <summary>
-        /// Sets Schedule for normal runs
+        /// Sets Schedule base on current mode
         /// </summary>
         private void SetSchedule(ProgramState mode)
         {
             _scheduler.Reset();
             _setRechargeState = mode == ProgramState.Recharge;
             const float step = 1f / 5f;
-            double mehTick = mode == ProgramState.Recharge ? Tick * (30 *_tickMultiplier) : _tickMultiplier * Tick;
+            double tick = mode == ProgramState.Recharge ? Tick * (30 *_tickMultiplier) : _tickMultiplier * Tick;
 
             _scheduler.AddScheduledAction(StatusUpdate,4);
             _scheduler.AddScheduledAction(AutoDoors,10);
@@ -277,19 +287,19 @@ namespace IngameScript
                     _setRechargeState = true;
                     _scheduler.AddScheduledAction(ReturnToCenter,Tick);
 
-                    _scheduler.AddQueuedAction(GetBlocks,100 * mehTick);
-                    _scheduler.AddQueuedAction(CheckBlocks,150 * mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), mehTick);
+                    _scheduler.AddQueuedAction(GetBlocks,1000 * tick);
+                    _scheduler.AddQueuedAction(CheckBlocks,150 * tick);
+                    _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), tick);
 
-                    _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), mehTick);
+                    _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), tick);
                     break;
                 case ProgramState.Normal:
                     _currentMode = ProgramState.Normal;
@@ -297,11 +307,18 @@ namespace IngameScript
                    _scheduler.AddScheduledAction(_scheduledSetup);
                     
                    _scheduler.AddScheduledAction(CheckConnectors,10*Tick);
-                    if (_autoNavigate)
+
+                    _scheduler.AddScheduledAction(() =>
                     {
-                        _scheduler.AddScheduledAction(()=>RotateGrid(true),20);
-                        _scheduler.AddScheduledAction(()=>CheckThrusters(),10);
-                    }
+                        if (!_powerManagement || !_capReactors)return;
+                        _fuelCollection = GetFuel();
+                    },200*tick);
+                    _scheduler.AddScheduledAction(() =>
+                    {
+                        if (!_autoNavigate)return;
+                        CheckThrusters();
+                        RotateGrid(true);
+                    },10);
                     
                     //Queued actions
                     _scheduler.AddScheduledAction(AggroBuilder,6);
@@ -309,66 +326,72 @@ namespace IngameScript
                     _scheduler.AddScheduledAction(ReturnToCenter,30);
                     _scheduler.AddScheduledAction(UpdateInventory,0.1);
                     
-                    _scheduler.AddQueuedAction(GetBlocks,100 * mehTick);
-                    _scheduler.AddQueuedAction(CheckBlocks,150 * mehTick);
-                    _scheduler.AddQueuedAction(CheckProjection,mehTick);
-                    _scheduler.AddQueuedAction(()=>BlockGroupEnable(_solars),mehTick);
-                    _scheduler.AddQueuedAction(()=>BlockGroupEnable(_windTurbines),mehTick);
+                    _scheduler.AddQueuedAction(GetBlocks,100 * tick);
+                    _scheduler.AddQueuedAction(CheckBlocks,150 * tick);
+                    _scheduler.AddQueuedAction(CheckProjection,tick);
+                    _scheduler.AddQueuedAction(()=>
+                    {
+                        var newList = new List<IMyCubeBlock>();
+                        newList.AddRange(_solars);
+                        newList.AddRange(_windTurbines);
+                        if (newList.Count == 0) return;
+                        BlockGroupEnable(newList);
+                    },tick);
                     
-                    _scheduler.AddQueuedAction(() => UpdateProduction(0 * step, 1 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateProduction(1 * step, 2 * step),  mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateProduction(2 * step, 3 * step),  mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateProduction(3 * step, 4 * step),  mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateProduction(4 * step, 5 * step), mehTick); 
+                    _scheduler.AddQueuedAction(() => UpdateProduction(0 * step, 1 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateProduction(1 * step, 2 * step),  tick);
+                    _scheduler.AddQueuedAction(() => UpdateProduction(2 * step, 3 * step),  tick);
+                    _scheduler.AddQueuedAction(() => UpdateProduction(3 * step, 4 * step),  tick); 
+                    _scheduler.AddQueuedAction(() => UpdateProduction(4 * step, 5 * step), tick); 
 
-                    _scheduler.AddQueuedAction(() => UpdateTanks(0 * step, 1 * step),  mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateTanks(1 * step, 2 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateTanks(2 * step, 3 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateTanks(3 * step, 4 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateTanks(4 * step, 5 * step), mehTick); 
+                    _scheduler.AddQueuedAction(() => UpdateTanks(0 * step, 1 * step),  tick);
+                    _scheduler.AddQueuedAction(() => UpdateTanks(1 * step, 2 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateTanks(2 * step, 3 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateTanks(3 * step, 4 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateTanks(4 * step, 5 * step), tick); 
 
-                    _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step),  mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), mehTick); 
+                    _scheduler.AddQueuedAction(() => UpdateVents(0 * step, 1 * step),  tick);
+                    _scheduler.AddQueuedAction(() => UpdateVents(1 * step, 2 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateVents(2 * step, 3 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateVents(3 * step, 4 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateVents(4 * step, 5 * step), tick); 
 
-                   _scheduler.AddQueuedAction(() => UpdateGasGen(0 * step, 1 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateGasGen(1 * step, 2 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateGasGen(2 * step, 3 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateGasGen(3 * step, 4 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateGasGen(4 * step, 5 * step), mehTick);
+                   _scheduler.AddQueuedAction(() => UpdateGasGen(0 * step, 1 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateGasGen(1 * step, 2 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateGasGen(2 * step, 3 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateGasGen(3 * step, 4 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateGasGen(4 * step, 5 * step), tick);
 
               
-                   _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), mehTick);
+                   _scheduler.AddQueuedAction(() => UpdateBatteries(0 * step, 1 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateBatteries(1 * step, 2 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateBatteries(2 * step, 3 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateBatteries(3 * step, 4 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateBatteries(4 * step, 5 * step), tick);
 
-                   _scheduler.AddQueuedAction(() => UpdateReactors(0 * step, 1 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateReactors(1 * step, 2 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateReactors(2 * step, 3 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateReactors(3 * step, 4 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateReactors(4 * step, 5 * step), mehTick);
+                   _scheduler.AddQueuedAction(() => UpdateReactors(0 * step, 1 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateReactors(1 * step, 2 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateReactors(2 * step, 3 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateReactors(3 * step, 4 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateReactors(4 * step, 5 * step), tick);
 
-                   _scheduler.AddQueuedAction(() => UpdateTurrets(0 * step, 1 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateTurrets(1 * step, 2 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => UpdateTurrets(2 * step, 3 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateTurrets(3 * step, 4 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => UpdateTurrets(4 * step, 5 * step), mehTick);
+                   _scheduler.AddQueuedAction(() => UpdateTurrets(0 * step, 1 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateTurrets(1 * step, 2 * step), tick); 
+                   _scheduler.AddQueuedAction(() => UpdateTurrets(2 * step, 3 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateTurrets(3 * step, 4 * step), tick);
+                   _scheduler.AddQueuedAction(() => UpdateTurrets(4 * step, 5 * step), tick);
 
-                   _scheduler.AddQueuedAction(() => CapFuel(0 * step, 1 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => CapFuel(1 * step, 2 * step), mehTick); 
-                   _scheduler.AddQueuedAction(() => CapFuel(2 * step, 3 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => CapFuel(3 * step, 4 * step), mehTick);
-                   _scheduler.AddQueuedAction(() => CapFuel(4 * step, 5 * step), mehTick);
-
-                    _scheduler.AddQueuedAction(() => UpdateScreens(0 * step, 1 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateScreens(1 * step, 2 * step), mehTick); 
-                    _scheduler.AddQueuedAction(() => UpdateScreens(2 * step, 3 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateScreens(3 * step, 4 * step), mehTick);
-                    _scheduler.AddQueuedAction(() => UpdateScreens(4 * step, 5 * step), mehTick);
+                   _scheduler.AddQueuedAction(() => CapFuel(0 * step, 1 * step), tick); 
+                   _scheduler.AddQueuedAction(() => CapFuel(1 * step, 2 * step), tick); 
+                   _scheduler.AddQueuedAction(() => CapFuel(2 * step, 3 * step), tick);
+                   _scheduler.AddQueuedAction(() => CapFuel(3 * step, 4 * step), tick);
+                   _scheduler.AddQueuedAction(() => CapFuel(4 * step, 5 * step), tick);
+                    
+                    _scheduler.AddQueuedAction(() => UpdateScreens(0 * step, 1 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateScreens(1 * step, 2 * step), tick); 
+                    _scheduler.AddQueuedAction(() => UpdateScreens(2 * step, 3 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateScreens(3 * step, 4 * step), tick);
+                    _scheduler.AddQueuedAction(() => UpdateScreens(4 * step, 5 * step), tick);
                     
                     break;
             }
@@ -622,7 +645,7 @@ namespace IngameScript
         /// Controls lock state of landing gears
         /// </summary>
         /// <param name="b"></param>
-        private void LockLandingGears(bool b = true)
+        private void SwitchStateLandingGears(bool b = true)
         {
             if (_landingGears.Count == 0) return;
             
@@ -636,13 +659,31 @@ namespace IngameScript
             }
         }
 
+        private void SwitchStateConnectors(bool connect = true)
+        {
+            if (_connectors.Count == 0) return;
+            foreach (var connector in _connectors)
+            {
+                if (connect)
+                {
+                    if (connector.Status != MyShipConnectorStatus.Connectable || connector.Status == MyShipConnectorStatus.Connected) continue;
+                    connector.Connect();
+                }
+                else
+                {
+                    if (connector.Status != MyShipConnectorStatus.Connected) continue;
+                    connector.Disconnect();
+                }
+            }
+        }
+
         private void PowerOn()
         { 
             GetBlocks();
-            var  blocksToSwitchOn = new HashSet<IMyCubeBlock>(_gridBlocks.OfType<IMyFunctionalBlock>().Where(funcBlock => !Closed(funcBlock) &&
-                                                                                                                         !funcBlock.Enabled && !(funcBlock is IMyShipWelder || funcBlock is IMyShipGrinder ||
-                                                                                                                                                 funcBlock is IMyShipDrill || funcBlock.BlockDefinition.TypeIdString.Substring(16).Equals("hydrogenengine",
-                                                                                                                                                     StringComparison.OrdinalIgnoreCase) || funcBlock is IMyLightingBlock)));
+            var  blocksToSwitchOn = new HashSet<IMyCubeBlock>(_gridBlocks.OfType<IMyFunctionalBlock>().Where(funcBlock => !Closed(funcBlock) 
+                && !funcBlock.Enabled && !(funcBlock is IMyShipWelder || funcBlock is IMyShipGrinder || funcBlock is IMyShipDrill || 
+                                           funcBlock.BlockDefinition.TypeIdString.Substring(16).Equals("hydrogenengine",
+                                               StringComparison.OrdinalIgnoreCase) || funcBlock is IMyLightingBlock)));
 
             blocksToSwitchOn.UnionWith(_lights.Where(x => !x.BlockDefinition.TypeIdString.Substring(16).Equals("ReflectorLight",StringComparison.OrdinalIgnoreCase) &&
                                                          !x.BlockDefinition.TypeIdString.Substring(16).Equals("RotatingLight",StringComparison.OrdinalIgnoreCase)));
@@ -658,29 +699,22 @@ namespace IngameScript
             
             SetSchedule(ProgramState.Normal);
 
-            if (_autoNavigate && TryGetRemote(out _remoteControl))
-            {
-                var edgeDirection = VectorMath.GetShipEdgeVector(_remoteControl, _remoteControl.WorldMatrix.Down);
-                var edgePos = _remoteControl.GetPosition() + edgeDirection;
-                _shipHeight =Vector3D.Distance(_remoteControl.CenterOfMass, edgePos);
-            }
 
-
-            foreach (var tank in blocksToSwitchOn.OfType<IMyGasTank>())
+            foreach (var tank in _gasTanks)
             {
                 tank.Stockpile = false;
             }
 
         }
 
-        private void PowerDown()
+        private bool PowerDown()
         {
             if (!_isDocked && _currentSpeed > 1 || _inGravity && _currentAltitude > 20 && !IsLandingGearLocked())
             {
                 Log.Error("Vehicle cannot be switched off while in motion");
                 _autoPilot = Pilot.Disabled;
                 EnableDampeners(true);
-                return;
+                return false;
             }
 
             var blocksOff = new List<IMyTerminalBlock>();
@@ -690,7 +724,7 @@ namespace IngameScript
                 if (funcBlock is IMyBatteryBlock || funcBlock is IMySolarPanel || funcBlock is IMyLandingGear ||
                     funcBlock is IMyGasTank || funcBlock is IMyMedicalRoom || funcBlock is IMyDoor ||
                     funcBlock.BlockDefinition.TypeIdString.Substring(16).Equals("WindTurbine",StringComparison.OrdinalIgnoreCase) ||
-                    funcBlock is IMyShipConnector || funcBlock is IMyButtonPanel || funcBlock is IMyJumpDrive)
+                    funcBlock is IMyShipConnector || funcBlock is IMyButtonPanel || funcBlock is IMyJumpDrive || funcBlock.BlockDefinition.TypeIdString.Substring(16).Equals("SurvivalKit"))
                 {
                     funcBlock.Enabled = true;
                     var battery = funcBlock as IMyBatteryBlock;
@@ -713,15 +747,17 @@ namespace IngameScript
                 }
 
                 blocksOff.Add(funcBlock);
+
             }
 
 
             if (!_isStatic)
-                LockLandingGears();
+                SwitchStateLandingGears();
 
             BlockGroupEnable(blocksOff,false);
 
             _scheduler.Reset();
+            return true;
         }
 
         private static void BlockGroupEnable(IEnumerable<IMyCubeBlock> groupBlocks, bool on = true)
@@ -846,8 +882,6 @@ namespace IngameScript
                     continue;
                 }
 
-                reactor.UseConveyorSystem = false;
-
                 MyItemType fuel;
                 var reactorInvent = reactor.GetInventory();
                 if (!TryGetFuel(reactor.BlockDefinition.SubtypeId, out fuel))
@@ -856,15 +890,59 @@ namespace IngameScript
                 }
 
 
-
-                MyFixedPoint count;
+                MyFixedPoint count = 0;
 
                 if (_fuelCollection.Count == 0 || !_fuelCollection.TryGetValue(fuel, out count))
                 {
                     continue;
                 }
-                
+                _scheduler.AddQueuedAction(()=>
+                {
+                    var lowCap = (double)count / _reactors.Count < _lowFuel
+                        ? (MyFixedPoint) ((double)count  / _reactors.Count)
+                        : (int) _lowFuel;
+
+                    var reactorFuel = reactorInvent.GetItemAmount(fuel);
+                    var amountDiff = reactorFuel - lowCap;
+                    if (Math.Abs((double)amountDiff) <= 1) return;
+
+                    if (amountDiff < 0)
+                    {
+                        var neededAmount = (MyFixedPoint) Math.Abs((double) amountDiff);
+                        HashSet<IMyTerminalBlock> cargoList;
+                        if (!TryFindItem(fuel, out cargoList))
+                        {
+                            return;
+                        }
+                        foreach (var cargo in cargoList)
+                        {
+                            var cargoInvent = cargo.GetInventory();
+                            if (!cargoInvent.CanTransferItemTo(reactorInvent, fuel) || !cargoInvent.ContainItems(neededAmount, fuel)) continue;
+                            var inventItem = cargoInvent.FindItem(fuel);
+                            if (inventItem == null)
+                            {
+                                continue;
+                            }
+                            cargoInvent.TransferItemTo(reactorInvent, inventItem.Value, neededAmount);
+                            break;
+                        }
+                        return;
+                    }
+
+
+                    var z = reactorInvent.FindItem(fuel);
+                    if(z == null)return;
+                    try
+                    {
+                        reactorInvent.TransferItemTo(_inventoryBlocks.FirstOrDefault(x=>x.GetInventory().IsConnectedTo(reactorInvent))?.GetInventory(), z.Value, amountDiff);
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Error(e.ToString());
+                    }
+                },Tick,true);
                 reactor.UseConveyorSystem = false;
+                /*
                 var lowCap = (double)count / _reactors.Count < _lowFuel
                     ? (MyFixedPoint) ((double)count  / _reactors.Count)
                     : (int) _lowFuel;
@@ -907,7 +985,7 @@ namespace IngameScript
                 {
                     Log.Error(e.ToString());
                 }
-                
+                */
             }
         }
 
@@ -925,7 +1003,14 @@ namespace IngameScript
 
             if (_batteries.Count == 1)
             {
-                _scheduler.AddQueuedAction(()=>RunBattery(_batteries[0]),0.01,true);
+                var battery = _batteries[0];
+                if (Closed(battery))
+                {
+                    _lowBlocks.Remove(battery);
+                    _batteries.Remove(battery);
+                    return;
+                }
+                RunBattery(battery);
                 return;
             }
 
@@ -933,11 +1018,21 @@ namespace IngameScript
             var start = (int) (startProportion * _batteries.Count);
             var end = (int) (endProportion * _batteries.Count);
 
-            for (var i = start; i < end; ++i)
+            lock (_batteries)
             {
-                var battery = _batteries[i];
+                for (var i = start; i < end; ++i)
+                {
+                    var battery = _batteries[i];
 
-                _scheduler.AddQueuedAction(()=>RunBattery(battery),0.01,true);
+                    if (Closed(battery))
+                    {
+                        _lowBlocks.Remove(battery);
+                        _batteries.RemoveAtFast(i);
+                        continue;
+                    }
+
+                    _scheduler.AddQueuedAction(()=>RunBattery(battery),0.01,true);
+                }
             }
 
         }
@@ -949,19 +1044,11 @@ namespace IngameScript
                 return;
             }
 
-            if (Closed(battery))
-            {
-                _lowBlocks.Remove(battery);
-                return;
-            }
-
             if (_combatFlag)
             {
                 battery.ChargeMode = ChargeMode.Discharge;
                 return;
             }
-            var highestCharge = _highestChargedBattery?.CurrentStoredPower / _highestChargedBattery?.MaxStoredPower ??
-                                0f;
 
             var maxRechargeBatteries = _isStatic ? Math.Round(0.35 * _batteries.Count,0):Math.Round(0.15 * _batteries.Count,0);
 
@@ -974,42 +1061,40 @@ namespace IngameScript
 
             float charge;
 
+
+            if (currentPercentCharge > _batteryHighestCharge ||
+                (_highestChargedBattery == null && battery.HasCapacityRemaining) || _autoPilot > Pilot.Disabled || _currentSpeed > 25 || battery == _highestChargedBattery)
+            {
+                _batteryHighestCharge = _highestChargedBattery?.CurrentStoredPower / _highestChargedBattery?.MaxStoredPower ??
+                                        0f;
+                _highestChargedBattery = battery;
+                battery.ChargeMode = ChargeMode.Auto;
+                _lowBlocks.Remove(battery);
+                return;
+            }
+
+
             if (!_lowBlocks.TryGetValue(battery, out charge))
             {
-                if (currentPercentCharge >= highestCharge ||
-                    (_highestChargedBattery == null && battery.HasCapacityRemaining))
-                {
-                    _highestChargedBattery = battery;
-                    battery.ChargeMode = ChargeMode.Auto;
-                    return;
-                }
 
-                if (_currentMode == ProgramState.Recharge)
+                if (_currentMode == ProgramState.Recharge && battery != _highestChargedBattery)
                 {
                     _lowBlocks[battery] = 1f;
                     return;
                 }
 
-                if (allowRecharge && (!battery.HasCapacityRemaining|| currentPercentCharge < _rechargePoint ))
+                if (allowRecharge && (!battery.HasCapacityRemaining || currentPercentCharge < _rechargePoint ))
                 {
                     _lowBlocks[battery] = 0.5f;
                     return;
                 }
 
                 battery.ChargeMode = _isStatic && _batteryLevel > Math.Max(_rechargePoint,0.5f) ? ChargeMode.Discharge : ChargeMode.Auto;
-
-            }
-
-            if (battery == _highestChargedBattery || currentPercentCharge >= charge || _autoPilot > Pilot.Disabled || _currentSpeed > 25)
-            {
-                
-                _lowBlocks.Remove(battery);
-                battery.ChargeMode = ChargeMode.Auto;
                 return;
             }
 
+
             battery.ChargeMode = ChargeMode.Recharge;
-            _batteryHighestCharge = highestCharge > _rechargePoint ? highestCharge - 0.1f : 1f;
         }
 
         /// <summary>
@@ -1025,26 +1110,41 @@ namespace IngameScript
 
             if (_reactors.Count == 1)
             {
-                _scheduler.AddQueuedAction(()=>RunReactor(_reactors[0]),Tick,true);
+                var reactor = _reactors[0];
+                if (Closed(reactor))
+                {
+                    _reactors.Remove(reactor);
+                    return;
+                }
+                RunReactor(reactor);
                 return;
             }
 
             var start = (int) (startProportion * _reactors.Count);
             var end = (int) (endProportion * _reactors.Count);
-            for (var i = start; i < end; ++i)
+
+            lock (_reactors)
             {
-                var reactor = _reactors[i];
-                _scheduler.AddQueuedAction(()=>RunReactor(reactor),Tick,true);
+                for (var i = start; i < end; ++i)
+                {
+                    var reactor = _reactors[i];
+                    if (Closed(reactor))
+                    {
+                        _lowBlocks.Remove(reactor);
+                        _reactors.RemoveAtFast(i);
+                        continue;
+                    }
+                    _scheduler.AddQueuedAction(()=>RunReactor(reactor),Tick,true);
+                }
             }
-        }
+        }   
 
         private void RunReactor(IMyReactor reactor)
         {
-            if (Closed(reactor) || reactor == null)
-            {
-                return;
-            }
-            reactor.Enabled = (_isOverload || _alert > AlertState.Clear) && reactor.GetInventory().CurrentMass > 0;
+            var itemList = new List<MyInventoryItem>();
+            reactor.GetInventory().GetItems(itemList);
+            _cargoDict[reactor] = new HashSet<MyInventoryItem>(itemList);
+            reactor.Enabled = _alert != AlertState.Clear && reactor.GetInventory().CurrentVolume > 0;
         }
 
         #endregion
@@ -1078,7 +1178,14 @@ namespace IngameScript
 
             foreach (var cargoInfo in _cargoDict )
             {
-                if (Closed(cargoInfo.Key) || cargoInfo.Value.All(x => x.Type != item))continue;
+                var found = false;
+                foreach (var cargoItem in cargoInfo.Value)
+                {
+                    if (cargoItem.Type != item) continue;
+                    found = true;
+                    break;
+                }
+                if (!found) continue;
                 cargoContainers.Add(cargoInfo.Key);
             }
 
@@ -1130,15 +1237,31 @@ namespace IngameScript
             var blockInvent = block.GetInventory();
             var blockIsRefinery = block is IMyRefinery;
 
-            DateTime time;
-
             if (blockIsRefinery)
             {
+                _scheduler.AddQueuedAction(() =>
+                {
                 var inputItemType = new List<MyItemType>();
                 block.InputInventory.GetAcceptedItems(inputItemType);
                 double meh = 0;
+                bool takeFromOther = !block.IsProducing;
                 foreach (var item in inputItemType)
                 {
+                    if (takeFromOther)
+                    {
+                        var foundTake = false;
+                        foreach (var refinery in _productionBlocks.OfType<IMyRefinery>())
+                        {
+                            var inputInvent = refinery.InputInventory;
+                            if (inputInvent.ItemCount < 2) continue;
+                            var foundItem = inputInvent.FindItem(item);
+                            if (foundItem == null) continue;
+                            inputInvent.TransferItemTo(block.InputInventory, foundItem.Value, foundItem.Value.Amount);
+                            foundTake = true;
+                            break;
+                        }
+                        if (foundTake) break;
+                    }
                     HashSet<IMyTerminalBlock> itemContainers;
                     if (!TryFindItem(item, out itemContainers)) continue;
                     var chosenContainer =
@@ -1151,15 +1274,55 @@ namespace IngameScript
                     chosenContainer.GetInventory().TransferItemTo(block.InputInventory, inventItem, maxToPull);
                 }
 
-                block.CustomData = inputItemType.Count.ToString();
                 if (block.InputInventory.ItemCount > 0) 
                 {
                     block.Enabled = true;
                     _collection[block] = DateTime.Now;
                     return;
                 }
-            }
+                },Tick,true);
+                /*
+                var inputItemType = new List<MyItemType>();
+                block.InputInventory.GetAcceptedItems(inputItemType);
+                double meh = 0;
+                bool takeFromOther = !block.IsProducing;
+                foreach (var item in inputItemType)
+                {
+                    if (takeFromOther)
+                    {
+                        var foundTake = false;
+                        foreach (var refinery in _productionBlocks.OfType<IMyRefinery>())
+                        {
+                            var inputInvent = refinery.InputInventory;
+                            if (inputInvent.ItemCount < 2) continue;
+                            var foundItem = inputInvent.FindItem(item);
+                            if (foundItem == null) continue;
+                            inputInvent.TransferItemTo(block.InputInventory, foundItem.Value, foundItem.Value.Amount);
+                            foundTake = true;
+                            break;
+                        }
+                        if (foundTake) break;
+                    }
+                    HashSet<IMyTerminalBlock> itemContainers;
+                    if (!TryFindItem(item, out itemContainers)) continue;
+                    var chosenContainer =
+                        itemContainers.FirstOrDefault(x => x.GetInventory().CanTransferItemTo(blockInvent, item));
+                    HashSet<MyInventoryItem> inventItems;
+                    if (chosenContainer == null || !_cargoDict.TryGetValue(chosenContainer, out inventItems)) continue;
+                    var inventItem = inventItems.FirstOrDefault(x=>x.Type == item);
+                    var maxToPull =(MyFixedPoint) ((1000 * (Math.Min(Math.Abs((double)(block.InputInventory.MaxVolume - block.InputInventory.CurrentVolume)),(double)inventItem.Amount))) / inputItemType.Count);
+                    meh +=(double) maxToPull;
+                    chosenContainer.GetInventory().TransferItemTo(block.InputInventory, inventItem, maxToPull);
+                }
 
+                if (block.InputInventory.ItemCount > 0) 
+                {
+                    block.Enabled = true;
+                    _collection[block] = DateTime.Now;
+                    return;
+                }*/
+            }
+            DateTime time;
             if (!_collection.TryGetValue(block, out time))
             {
                 if (!block.Enabled)
@@ -1180,7 +1343,7 @@ namespace IngameScript
                 _collection[block] = DateTime.Now;
 
                 if (block.OutputInventory.CurrentVolume > (MyFixedPoint)(0.75 * (double)block.OutputInventory.MaxVolume))
-                    EmptyProductionBlock(block);
+                    _scheduler.AddQueuedAction(()=>EmptyProductionBlock(block),Tick,true);
                 return;
             }
 
@@ -1265,11 +1428,14 @@ namespace IngameScript
 
             var start = (int) (startProportion * _gasGens.Count);
             var end = (int) (endProportion * _gasGens.Count);
-            
-            for (int i = start; i < end; i++)
+
+            lock (_gasGens)
             {
-                var gen = _gasGens[i];
-                _scheduler.AddQueuedAction(()=>RunGen(gen,enableGen),0.01,true);
+                for (int i = start; i < end; i++)
+                {
+                    var gen = _gasGens[i];
+                    _scheduler.AddQueuedAction(()=>RunGen(gen,enableGen),0.01,true);
+                }
             }
 
 
@@ -1304,10 +1470,14 @@ namespace IngameScript
             }
             var start = (int) (startProportion * _gasTanks.Count);
             var end = (int) (endProportion * _gasTanks.Count);
-            for (var i = start; i < end; ++i)
+
+            lock (_gasTanks)
             {
-                var tank = _gasTanks[i];
-                _scheduler.AddQueuedAction(()=>RunTank(tank),0.01,true);
+                for (var i = start; i < end; ++i)
+                {
+                    var tank = _gasTanks[i];
+                    _scheduler.AddQueuedAction(()=>RunTank(tank),0.01,true);
+                }
             }
 
         }
@@ -1373,10 +1543,13 @@ namespace IngameScript
 
             var end = (int) (endProportion * _airVents.Count);
 
-            for (var i = start; i < end; ++i)
+            lock (_airVents)
             {
-                var vent = _airVents[i];
-                _scheduler.AddQueuedAction(()=>RunVent(vent),0.001,true);
+                for (var i = start; i < end; ++i)
+                {
+                    var vent = _airVents[i];
+                    _scheduler.AddQueuedAction(()=>RunVent(vent),0.001,true);
+                }
             }
         }
 
@@ -1555,6 +1728,47 @@ namespace IngameScript
         private readonly StringBuilder _turretIniCustomDataSb = new StringBuilder();
         private bool _turretsActive = true;
 
+        public class WcPbApi
+        {
+            private Action<IMyTerminalBlock, IDictionary<MyDetectedEntityInfo, float>> _getSortedThreats;
+            private Action<ICollection<MyDefinitionId>> _getCoreWeapons;
+            private Action<ICollection<MyDefinitionId>> _getCoreTurrets;
+            
+            public bool Activate(IMyTerminalBlock pbBlock)
+            {
+                var dict = pbBlock.GetProperty("WcPbAPI")?.As<Dictionary<string, Delegate>>().GetValue(pbBlock);
+                if (dict == null) throw new Exception($"WcPbAPI failed to activate");
+                return ApiAssign(dict);
+            }
+
+            public bool ApiAssign(IReadOnlyDictionary<string, Delegate> delegates)
+            {
+                if (delegates == null) return false;
+                AssignMethod(delegates, "GetCoreWeapons", ref _getCoreWeapons);
+                AssignMethod(delegates, "GetCoreTurrets", ref _getCoreTurrets);
+                AssignMethod(delegates, "GetSortedThreats", ref _getSortedThreats);
+                return true;
+            }
+            private void AssignMethod<T>(IReadOnlyDictionary<string, Delegate> delegates, string name, ref T field) where T : class
+            {
+                if (delegates == null) {
+                    field = null;
+                    return;
+                }
+                Delegate del;
+                if (!delegates.TryGetValue(name, out del))
+                    throw new Exception($"{GetType().Name} :: Couldn't find {name} delegate of type {typeof(T)}");
+                field = del as T;
+                if (field == null)
+                    throw new Exception(
+                        $"{GetType().Name} :: Delegate {name} is not type {typeof(T)}, instead it's: {del.GetType()}");
+            }
+
+            public void GetAllCoreWeapons(ICollection<MyDefinitionId> collection) => _getCoreWeapons?.Invoke(collection);
+            public void GetSortedThreats(IMyTerminalBlock pbBlock, IDictionary<MyDetectedEntityInfo, float> collection) =>
+                _getSortedThreats?.Invoke(pbBlock, collection);
+            public void GetCoreTurrets(ICollection<MyDefinitionId> collection) => _getCoreTurrets?.Invoke(collection);
+        }
 
         private const string INI_SECTION_TURRETMAIN = "Turret Settings";
         private const string INI_TURRETMAIN_TURRETAGGRESION = "Turret Aggression Trigger";
@@ -1676,7 +1890,7 @@ namespace IngameScript
         /// <param name="endProportion"></param>
         private void UpdateTurrets(float startProportion, float endProportion)
         {
-            if (_turrets.Count <= 1 || !_turretControl)
+            if (_turrets.Count <= 1 || !_turretControl || _enableWC)
                 return;
 
             if (_turrets.Count <= 1)
@@ -1687,81 +1901,87 @@ namespace IngameScript
 
             var start = (int) (startProportion * _turrets.Count);
             var end = (int) (endProportion * _turrets.Count);
-            for (var i = start; i < end; ++i)
+            lock (_turrets)
             {
-                var turret = _turrets[i];
-                if (Closed(turret) || turret.IsUnderControl)
+                for (var i = start; i < end; ++i)
                 {
-                    continue;
-                }
-
-                if (!_turretsActive)
-                {
-                    turret.Enabled = false;
-                    if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01 || _turretsToCenter.Contains(turret))
+                    var turret = _turrets[i];
+                    if (Closed(turret))
                     {
+                        _turrets.RemoveAtFast(i);
                         continue;
                     }
-                    if(_turretsToCenter.Count < 10)_turretsToCenter.Enqueue(turret);
-                    _lastTargets.Clear();
-                    continue;
-                }
 
-                TurretSettingsDefault();
-                TurretParseIni(turret);
-                
+                    if (turret.IsUnderControl) continue;
 
-                if (!_turretDuty.Equals("None",StringComparison.OrdinalIgnoreCase))
-                {
-                    SetTurret(turret);
-
-                    if (_turretDuty.Equals(_antimissileName,StringComparison.OrdinalIgnoreCase) && !_combatFlag)
+                    if (!_turretsActive)
                     {
                         turret.Enabled = false;
-                        if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01  || _turretsToCenter.Contains(turret)) continue;
-
+                        if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01 || _turretsToCenter.Contains(turret))
+                        {
+                            continue;
+                        }
                         if(_turretsToCenter.Count < 10)_turretsToCenter.Enqueue(turret);
+                        _lastTargets.Clear();
                         continue;
                     }
 
-                    turret.Enabled = true;
+                    TurretSettingsDefault();
+                    TurretParseIni(turret);
+                
+
+                    if (!_turretDuty.Equals("None",StringComparison.OrdinalIgnoreCase))
+                    {
+                        SetTurret(turret);
+
+                        if (_turretDuty.Equals(_antimissileName,StringComparison.OrdinalIgnoreCase) && !_combatFlag)
+                        {
+                            turret.Enabled = false;
+                            if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01  || _turretsToCenter.Contains(turret)) continue;
+
+                            if(_turretsToCenter.Count < 10)_turretsToCenter.Enqueue(turret);
+                            continue;
+                        }
+
+                        turret.Enabled = true;
+
+                        if (!turret.HasTarget)
+                        {
+                            DateTime time;
+                            if (!_collection.TryGetValue(turret, out time))
+                            {
+                                _collection[turret] = DateTime.Now;
+                                continue;
+
+                            }
+                            if (Math.Abs((DateTime.Now - time).TotalSeconds) >= 10) continue;
+                            _collection.Remove(turret);
+                            turret.EnableIdleRotation = false;
+                            if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01  || _turretsToCenter.Contains(turret)) continue;
+
+                            if(_turretsToCenter.Count < 10)_turretsToCenter.Enqueue(turret);
+                        }
+
+                        ResetAi(turret);
+                        continue;
+                    }
+
+                
+                    //compare number in custom data to aggression and turn off if higher
+                    //turret.Enabled = _aggressionTrigger < _aggression;
+
 
                     if (!turret.HasTarget)
                     {
-                        DateTime time;
-                        if (!_collection.TryGetValue(turret, out time))
-                        {
-                            _collection[turret] = DateTime.Now;
-                            continue;
-
-                        }
-                        if (Math.Abs((DateTime.Now - time).TotalSeconds) >= 10) continue;
-                        _collection.Remove(turret);
-                        turret.EnableIdleRotation = false;
-                        if (Math.Abs(turret.Elevation + turret.Azimuth) < 0.01  || _turretsToCenter.Contains(turret)) continue;
-
-                        if(_turretsToCenter.Count < 10)_turretsToCenter.Enqueue(turret);
+                        Refocus(turret);
                     }
-
-                    ResetAi(turret);
-                    continue;
-                }
-
                 
-                //compare number in custom data to aggression and turn off if higher
-                //turret.Enabled = _aggressionTrigger < _aggression;
+                    turret.SetValueBool("Shoot", false);
 
+                    if (turret.GetInventory().ItemCount != 0 || !turret.HasInventory || !_showOnHud) continue;
+                    turret.ShowOnHUD = true;
 
-                if (!turret.HasTarget)
-                {
-                    Refocus(turret);
                 }
-                
-                turret.SetValueBool("Shoot", false);
-
-                if (turret.GetInventory().ItemCount != 0 || !turret.HasInventory || !_showOnHud) continue;
-                turret.ShowOnHUD = true;
-
             }
         }
 
@@ -1776,7 +1996,7 @@ namespace IngameScript
 
             if (turret.IsShooting)turret.SetValueBool("Shoot",false);
             var possibleTargets =
-                new List<MyDetectedEntityInfo>(_myTargets.Where(x => InSight(turret, x)));
+                new List<MyDetectedEntityInfo>(_myTargets.Keys.Where(x => InSight(turret, x)));
 
             possibleTargets.RemoveAll(x=>_lastTargets.Contains(x));
             if (!possibleTargets.Any())
@@ -1889,27 +2109,40 @@ namespace IngameScript
         /// </summary>
         /// <param name="targets"></param>
         /// <returns></returns>
-        private bool HasTarget(out List<MyDetectedEntityInfo> targets)
+        private bool HasTarget(out Dictionary<MyDetectedEntityInfo,double> targets)
         {
-            targets = new List<MyDetectedEntityInfo>();
-
-            foreach (var turret in _turrets.Where(turret => turret.Enabled && turret.HasTarget && !SkipBlock(turret)))
+            targets = new Dictionary<MyDetectedEntityInfo,double>();
+            double lowestTargetDistance = 3000;
+            if (_enableWC)
             {
-                var target = turret.GetTargetedEntity();
-
-                if (Vector3D.Distance(target.Position, Me.GetPosition()) > 1500)
+                var wcTargets = new Dictionary<MyDetectedEntityInfo, float>();
+                wcPbApi.GetSortedThreats(Me,wcTargets);
+                foreach (var target in wcTargets.Keys)
                 {
-                    targets.Remove(target);
-                    continue;
+                    var targetDistance = Vector3D.Distance(target.Position, Me.GetPosition());
+                    if (targetDistance < lowestTargetDistance) lowestTargetDistance = targetDistance;
+                    targets[target] = targetDistance;
                 }
+            }
+            else
+            {
+                foreach (var turret in _turrets.Where(turret => turret.Enabled && turret.HasTarget && !SkipBlock(turret)))
+                {
+                    var target = turret.GetTargetedEntity();
+                    var targetDistance = Vector3D.Distance(target.Position, Me.GetPosition());
+                    if (targetDistance < lowestTargetDistance) lowestTargetDistance = targetDistance;
 
-                if (targets.Contains(target) ||
-                    target.Relationship != MyRelationsBetweenPlayerAndBlock.Enemies) continue;
-
-                if (!targets.Contains(target))targets.Add(target);
+                    if (target.Relationship != MyRelationsBetweenPlayerAndBlock.Enemies)
+                    {
+                        targets.Remove(target);
+                        continue;
+                    }
+                    
+                    targets[target] = targetDistance;
+                }
             }
 
-            return targets.Any();
+            return lowestTargetDistance < 1500;
         }
 
 
@@ -1934,9 +2167,8 @@ namespace IngameScript
 
             if (_hive)
             {
-                if (_combatFlag) AttackTarget();
-                else
-                    FollowMe();
+                _droneBehavior = _combatFlag ? DroneBehavior.Attack : DroneBehavior.Patrol;
+                SendDroneMessage();
             }
 
             _myTargets.Clear();
@@ -2032,18 +2264,18 @@ namespace IngameScript
         {
             var state = AlertState.Clear;
 
-            if (_navFlag || _productionFlag || _lowPower)
+            if (_navFlag || _productionFlag || _lowPower || _isOverload)
             {
                 state = AlertState.Guarded;
-                if (_powerFlag)
-                    Log.Info(string.Join("\n",
-                        $"Batteries in Recharge {_lowBlocks.Keys.OfType<IMyBatteryBlock>().Count()}/{_batteries.Count}",
-                        $"Number of reactors online {_reactors.Count(x=>x.Enabled)}/{_reactors.Count} "), LogTitle.Power);
             }
 
             if (_powerFlag)
             {
                 state = AlertState.Elevated;
+                Log.Info(string.Join("\n",
+                    $"Batteries in Recharge: {_lowBlocks.Keys.OfType<IMyBatteryBlock>().Count()}/{_batteries.Count}%",
+                    $"Reactors Online: {_reactors.Count(x => x.Enabled)}/{_reactors.Count}% "), LogTitle.Power);
+
             }
 
             if (_damageDetected)
@@ -2067,54 +2299,51 @@ namespace IngameScript
             {
                 return true;
             }
+            var itemList = new List<MyItemType>();
+
             foreach (var reactor in _reactors)
             {
-                if (Closed(reactor))
-                {
-                    _reactors.Remove(reactor);
-                    continue;
-                }
                 if (reactor.BlockDefinition.SubtypeId != reactorSubId) continue;
 
-                var itemList = new List<MyItemType>();
                 reactor.GetInventory().GetAcceptedItems(itemList);
                 fuel = itemList.FirstOrDefault();
                 _reactorFuel[reactorSubId] = fuel;
                 break;
             }
-            return !string.IsNullOrEmpty(fuel.SubtypeId);
+
+            return itemList.Count > 0;
         }
 
+        //Todo Fix this method.  Currently too expensive
         /// <summary>
         /// Finds fuel types present on the grids
         /// </summary>
         private Dictionary<MyItemType,MyFixedPoint> GetFuel()
         {
             var fuelCollection = new Dictionary<MyItemType,MyFixedPoint>();
-            var usedFuel =new HashSet<MyItemType>( _reactorFuel.Values);
 
-            if (usedFuel.Count == 0)
+            if (_reactorFuel.Count == 0)
             {
                 return fuelCollection;
             }
 
-            foreach (var item in usedFuel)
+            lock (_reactorFuel)
             {
-                MyFixedPoint count = 0;
-
-                HashSet<IMyTerminalBlock> inventBlocks;
-                
-                if (!TryFindItem(item, out inventBlocks)) continue;
-
-                foreach (var block in inventBlocks)
+                foreach (var item in _reactorFuel)
                 {
-                    if (Closed(block)) continue;
-                    var itemCount = block.GetInventory().GetItemAmount(item);
-                    if (itemCount == 0) continue;
-                    count += itemCount;
-                }
+                    var fuel = item.Value;
+                    MyFixedPoint count = 0;
+                    foreach (var cargoInfo in _cargoDict)
+                    {
+                        foreach (var cargoItem in cargoInfo.Value)
+                        {
+                            if (cargoItem.Type != fuel)continue;
+                            count += cargoItem.Amount;
+                        }
+                    }
 
-                fuelCollection[item] = count;
+                    fuelCollection[fuel] = count;
+                }
             }
 
             return fuelCollection;
@@ -2186,7 +2415,7 @@ namespace IngameScript
         /// Checks if ship is connected to a static grid
         /// </summary>
         /// <returns></returns>
-        private  bool IsConnectedToStatic()
+        private bool IsConnectedToStatic()
         {
             if (Me.CubeGrid.IsStatic) return false;
 
@@ -2203,9 +2432,8 @@ namespace IngameScript
 
         private HashSet<IMyCubeGrid> ConnectedGrids()
         {
-            GridTerminalSystem.GetBlocksOfType(_allBlocks,
-                x => !StringContains(x.CustomName, "ignore") &&
-                     !StringContains(x.CustomData, "ignore"));
+            GridTerminalSystem.GetBlocks(_allBlocks);
+            _allBlocks.RemoveAll(x => StringContains(x.CustomData, "ignore"));
             _connectedCubeGrids.Clear();
             foreach (var block in _allBlocks.OfType<IMyPowerProducer>())
             {
@@ -2234,7 +2462,6 @@ namespace IngameScript
         private bool TryGetDamagedBlocks(out HashSet<IMyTerminalBlock> damagedBlocks)
         {
             damagedBlocks = new HashSet<IMyTerminalBlock>();
-            
             var useBlocks = new HashSet<IMyTerminalBlock>();
 
             if (_master)useBlocks.UnionWith(_allBlocks);
@@ -2260,7 +2487,7 @@ namespace IngameScript
                 }
 
                 if (_showOnHud) block.ShowOnHUD = true;
-                _damagedBlocks.Add(block);
+                damagedBlocks.Add(block);
 
             }
 
@@ -2270,7 +2497,7 @@ namespace IngameScript
             }
 
             Log.Info($"{damagedBlocks.Count} blocks damaged", LogTitle.Damages);
-            Log.Warn($"{damagedBlocks.Count} blocks in need of repair:" + "\n"+string.Join("\n",damagedBlocks.Select(x=>x.CustomName)),LogTitle.Damages,LogType.Warn);
+            Log.Warn($"{damagedBlocks.Count} blocks in need of repair:" + "\n"+string.Join("\n",damagedBlocks.Select(x=>x.CustomName)),LogTitle.Damages);
 
             return true;
         }
@@ -2280,11 +2507,11 @@ namespace IngameScript
         /// </summary>
         private void CheckConnectors()
         {
+            if (_connectors.Count == 0) return;
             foreach (var connector in _connectors)
             {
                 if (Closed(connector) || connector.Status != MyShipConnectorStatus.Connectable)
                 {
-                    _collection.Remove(connector);
                     continue;
                 }
 
@@ -2308,7 +2535,7 @@ namespace IngameScript
         private void GetBlocks()
         {
 
-                GridTerminalSystem.GetBlocksOfType(_allBlocks);
+            GridTerminalSystem.GetBlocks(_allBlocks);
             if (_allBlocks.Count == 0)
             {
                 return;
@@ -2334,7 +2561,6 @@ namespace IngameScript
                 _airVents = new List<IMyAirVent>(_gridBlocks.OfType<IMyAirVent>());
                 _textPanels = new List<IMyTextPanel>(_gridBlocks.OfType<IMyTextPanel>());
                 _connectors = new HashSet<IMyShipConnector>(_gridBlocks.OfType<IMyShipConnector>());
-                _turrets = new List<IMyLargeTurretBase>(_gridBlocks.OfType<IMyLargeTurretBase>());
                 _lights = new HashSet<IMyLightingBlock>(_gridBlocks.OfType<IMyLightingBlock>());
                 _doors = new HashSet<IMyDoor>(_gridBlocks.OfType<IMyDoor>());
                 _solars = new HashSet<IMySolarPanel>(_gridBlocks.OfType<IMySolarPanel>());
@@ -2354,6 +2580,24 @@ namespace IngameScript
         {
             _shipWelders.Clear();
             _barWelders.Clear();
+            if (_gridBlocks.Count == 0) return;
+            if (_autoNavigate && TryGetRemote(out _remoteControl))
+            {
+                var edgeDirection = VectorMath.GetShipEdgeVector(_remoteControl, _remoteControl.WorldMatrix.Down);
+                var edgePos = _remoteControl.GetPosition() + edgeDirection;
+                _shipHeight =Vector3D.Distance(_remoteControl.CenterOfMass, edgePos);
+            }
+            if (_enableWC)
+            {
+                List<MyDefinitionId> definitionSubIds = new List<MyDefinitionId>();
+                wcPbApi.GetCoreTurrets(definitionSubIds);
+                _turrets.Clear();
+                _turrets.AddRange(_gridBlocks.OfType<IMyLargeTurretBase>().Where(x=>definitionSubIds.Contains(x.BlockDefinition)));
+            }
+            else
+            {
+                _turrets = new List<IMyLargeTurretBase>(_gridBlocks.OfType<IMyLargeTurretBase>());
+            }
 
             if (_handleRepair )
             {
@@ -2366,12 +2610,15 @@ namespace IngameScript
 
             }
 
+            var removeBlocks = new List<IMyTerminalBlock>();
+
             foreach (var block in _allBlocks)
             {
                 if (Closed(block))
                 {
                     _collection.Remove(block);
                     _lowBlocks.Remove(block);
+                    removeBlocks.Add(block);
                     continue;
                 }
 
@@ -2397,6 +2644,9 @@ namespace IngameScript
                 if (_removeBlocksInConfigurationTab) block.ShowInToolbarConfig = false;
                 if (block.HasInventory && !_inventoryBlocks.Contains(block)) _inventoryBlocks.Enqueue(block);
             }
+            if (removeBlocks.Count == 0) return;
+            Log.Warn($"Removed {removeBlocks.Count} blocks from list");
+            _allBlocks.RemoveAll(x => removeBlocks.Contains(x));
 
         }
 
@@ -2470,10 +2720,10 @@ namespace IngameScript
                 _instructionLimit = _program.Runtime.MaxInstructionCount;
             }
 
-            private int Capacity { get; set; }
-            private double Sensitivity { get; set; }
+            private int Capacity { get; }
+            private double Sensitivity { get; }
             private double MaxRuntime { get;  set; }
-            public double MaxInstructions { get;  set; }
+            private double MaxInstructions { get;  set; }
             private double AverageRuntime { get;  set; }
             private double AverageInstructions { get; set; }
 
@@ -2596,7 +2846,7 @@ namespace IngameScript
             private readonly bool _ignoreFirstRun;
             private readonly List<ScheduledAction> _scheduledActions = new List<ScheduledAction>();
             private readonly HashSet<ScheduledAction> _actionsToDispose = new HashSet<ScheduledAction>();
-            private readonly Queue<ScheduledAction> _queuedActions = new Queue<ScheduledAction>();
+            private  Queue<ScheduledAction> _queuedActions = new Queue<ScheduledAction>();
             private readonly Program _program;
 
             private const double RuntimeToRealtime = 1.0 / 60.0 / 0.0166666;
@@ -2684,8 +2934,15 @@ namespace IngameScript
             /// </summary>
             public void AddScheduledAction(ScheduledAction scheduledAction)
             {
+                if (_scheduledActions.Contains(scheduledAction))return;
                 _scheduledActions.Add(scheduledAction);
             }
+
+            public void RemoveScheduledActions(ScheduledAction scheduledAction)
+            {
+                _scheduledActions.Remove(scheduledAction);
+            }
+
 
             /// <summary>
             /// Adds an Action to the queue. Queue is FIFO.
@@ -2707,6 +2964,12 @@ namespace IngameScript
             {
                 _queuedActions.Enqueue(scheduledAction);
             }
+
+            public void RemoveQueuedActions(ScheduledAction action)
+            {
+                _queuedActions = new Queue<ScheduledAction>(_queuedActions.Where(x => x != action));
+            }
+            
         }
 
 
@@ -2762,21 +3025,18 @@ namespace IngameScript
 //--------------Command Broadcasts---------------
 
 //Command to order drones to follow
-
-        private void FollowMe()
+        private DroneBehavior _droneBehavior = DroneBehavior.Initiate;
+        private void SendDroneMessage()
         {
-            if (!_hive || _myAntenna?.IsFunctional == false) return;
-                
-            IGC.SendBroadcastMessage($"Follow {Me.Position}", _myAntenna.Radius);
+            if (!_hive || !_hasAntenna || _myAntenna?.IsFunctional == false) return;
+            var ran = new Random().Next(0, _myTargets.Count - 1);
+            var target = _myTargets.ElementAt(ran);
+            var msg = string.Join(",",
+                _droneBehavior, Me.CubeGrid.GetPosition(), _myAntenna?.Radius, target.Key.Position);
+            IGC.SendBroadcastMessage("DroneMessage",msg,_myAntenna == null ? 0:(TransmissionDistance)_myAntenna.Radius);
+
         }
 
-        private void AttackTarget()
-        {
-            if (!_myTargets.Any()) return;
-            var ran = new Random().Next(1, _myTargets.Count);
-            if (_hasAntenna && _myAntenna.IsFunctional)
-                IGC.SendBroadcastMessage($"Attack {_myTargets[ran].Position}", _myAntenna.Radius);
-        }
 
         #endregion
 
@@ -2794,8 +3054,8 @@ namespace IngameScript
                 _navFlag = true;
                 return;
             }
-
             _navFlag = false;
+
             _currentAltitude -= _shipHeight;
             _currentSpeed = _remoteControl.GetShipSpeed();
             _shipMass = _remoteControl.CalculateShipMass().PhysicalMass;
@@ -2805,9 +3065,10 @@ namespace IngameScript
 
             if (_shipVelocityVec.LengthSquared() > _maxSpeed * _maxSpeed)
                 _maxSpeed = _shipVelocityVec.Length();
-
+            _currentSpeed = VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(-_gravityVec));
             _downSpeed = VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(_gravityVec));
-
+            _upSpeed = - VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(_gravityVec));
+            _forwardSpeed = VectorMath.VectorProjection(_shipVelocityVec, _remoteControl.WorldMatrix.Forward).Length() * Math.Sign(_shipVelocityVec.Dot(_remoteControl.WorldMatrix.Forward));
             switch (_autoPilot)
             {
                 case Pilot.Disabled:
@@ -2824,14 +3085,12 @@ namespace IngameScript
                     Log.Info($"AutoPilot Landing", LogTitle.Navigation);
                     //_sbStatus.AppendLine($"AutoPilot Landing");
                     RotateGrid(false);
-                    _downSpeed = VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(_gravityVec));
                     Land();
                     return;
                 case Pilot.Takeoff:
                     Log.Info(string.Join("\n",$"AutoPilot exiting planetary gravity",$"Set Speed: {Math.Round(_setSpeed,0)}",$"SetAngle: {_takeOffAngle}"),LogTitle.Navigation);
                     //_sbStatus.AppendLine($"AutoPilot exiting planetary gravity");
-                    _upSpeed = - VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(_gravityVec));
-                    if (IsLandingGearLocked())LockLandingGears(false);
+                    if (IsLandingGearLocked())SwitchStateLandingGears(false);
                     TakeOff(_setSpeed,_takeOffAngle,_giveControl);
                     return;
                 default:
@@ -2859,12 +3118,12 @@ namespace IngameScript
             if (!_myTargets.Any() || _isDocked ||_hive) return;
             ResetGyros();
             var selectedTarget = _myTargets.FirstOrDefault();
-            if (Vector3D.Distance(selectedTarget.Position, Me.CubeGrid.GetPosition()) <= 400)
+            if (selectedTarget.Value <= 400)
             {
                 _remoteControl?.SetAutoPilotEnabled(false);
                 return;
             }
-            SetDestination(selectedTarget.Position, false, 75);
+            SetDestination(selectedTarget.Key.Position, false, 75);
         }
 
         private void EnableDampeners(bool enable)
@@ -2904,39 +3163,35 @@ namespace IngameScript
 
         private void Cruise(double speed = 50, double height = 2500, bool giveControl = true)
         {
-            giveControl = !_inGravity || giveControl;
+            giveControl = _inGravity && giveControl;
 
-            _thrust =  _currentSpeed < speed - 5
-                ? Math.Min(_thrust += 0.001f, 1)
+            _thrust =  _forwardSpeed < speed
+                ? Math.Min(_thrust += 0.01f, 1)
                 : Math.Max(_thrust -= 0.1f, 0);
 
 
            
-            _cruisePitch = _currentAltitude < _cruiseHeight
-                ? Math.Min(_cruisePitch += 0.01f, 0.15f)
-                : Math.Max(_cruisePitch -= 0.01f, -0.05f);
-
-
-            if (_inGravity && Math.Abs(_currentAltitude - _cruiseHeight) > 2500 && (!giveControl || !_isControlled))
+            if (_inGravity && (!giveControl || !_isControlled) && Math.Abs(_currentAltitude - height) > 2500)
             {
-                var adjustSpeed = Math.Abs(_currentAltitude - height) > 2500 ? 110 : 50;
-                if (_currentAltitude > _cruiseHeight + 1000)
-                {
-                    RotateGrid(giveControl, -1f);
-                    return;
-                }
-
-                if (_currentAltitude < _cruiseHeight)
-                {
-                    RotateGrid(giveControl, 1f);
-                    return;
-                }
+                _cruisePitch = _currentAltitude < height
+                    ? Math.Min(_cruisePitch += 1f, 25f)
+                    : Math.Max(_cruisePitch -= 1f, -25f);
+                var pitch = _currentAltitude < height - 1000 ? 0 : _cruisePitch;
+                var direction = _currentAltitude < height - 2500 ? _remoteControl.WorldMatrix.Up:_remoteControl.WorldMatrix.Forward;
+                
+                RotateGrid(giveControl, pitch*(Math.PI / 180));
+                OverrideThrust(true, direction, _thrust, _forwardSpeed, speed, 0.5f);
+                return;
             }
+            _cruisePitch = _currentAltitude < height
+                ? Math.Min(_cruisePitch += 0.1f, 10f)
+                : Math.Max(_cruisePitch -= 0.1f, -10f);
 
             var useThrust = _cruisePitch > 0 || (giveControl && _isControlled) ? _thrust : 0;
 
-            OverrideThrust(true, _remoteControl.WorldMatrix.Forward, useThrust, _currentSpeed, speed, 0.5f);
-            RotateGrid(giveControl, _cruisePitch);
+            OverrideThrust(true, _remoteControl.WorldMatrix.Forward, useThrust, _forwardSpeed, speed, 0.5f);
+
+            RotateGrid(giveControl, _cruisePitch*(Math.PI / 180));
 
         }
 
@@ -2965,7 +3220,6 @@ namespace IngameScript
                EndTrip();
                 return;
             }
-            _currentSpeed = VectorMath.VectorProjection(_shipVelocityVec, _gravityVec).Length() * Math.Sign(_shipVelocityVec.Dot(-_gravityVec));
 
             var up = GetUpDirection();
             var lowerSpeed =  takeOffSpeed - takeOffSpeed * 0.5;
@@ -3207,10 +3461,10 @@ namespace IngameScript
         /// <summary>
         /// Rotates the grid
         /// </summary>
-        /// <param name="checkPlayer"></param>
-        /// <param name="setPitch"></param>
-        /// <param name="setRoll"></param>
-        /// <param name="setYaw"></param>
+        /// <param name="checkPlayer"></param>Check if player is in control
+        /// <param name="setPitch"></param>Sets the pitch
+        /// <param name="setRoll"></param>Sets the Roll
+        /// <param name="setYaw"></param>Sets the yaw (currently not in use)
         private void RotateGrid(bool checkPlayer, double setPitch = 0, double setRoll = 0, double setYaw = 0)
         {
             if (_gyros.Count == 0)return;
@@ -3404,6 +3658,7 @@ namespace IngameScript
         private bool _rechargeWhenConnected;
         private bool _inGravity;
         private bool _enableAutoDoor;
+        private bool _enableWC;
 
 
         private static string _designatorName = "designator";
@@ -3417,6 +3672,7 @@ namespace IngameScript
         private float _cruisePitch;
         private Pilot _autoPilot = Pilot.Disabled;
 
+        private static WcPbApi wcPbApi;
 
 //Floats, Int, double
         private int _updateCounter;
@@ -3449,6 +3705,8 @@ namespace IngameScript
         private double _gravityMagnitude;
         private double _downSpeed;
         private double _upSpeed;
+        private double _forwardSpeed;
+        private double _reverseSpeed;
         private int _stationaryTime;
         private const double DescentSpeed = 3;
         private const double BurnThrustPercentage = 0.80;
@@ -3474,7 +3732,7 @@ namespace IngameScript
         private IMyRemoteControl _remoteControl;
 
 //entityinfo
-        private List<MyDetectedEntityInfo> _myTargets = new List<MyDetectedEntityInfo>();
+        private Dictionary<MyDetectedEntityInfo,double> _myTargets = new Dictionary<MyDetectedEntityInfo,double>();
         private HashSet<MyDetectedEntityInfo> _lastTargets = new HashSet<MyDetectedEntityInfo>();
 
         private Dictionary<IMyTerminalBlock,HashSet<IMyInventory>> _connectedInventory = new Dictionary<IMyTerminalBlock, HashSet<IMyInventory>>();
@@ -3663,14 +3921,14 @@ namespace IngameScript
 
         #region Script Logging
 
-        public class LogFile
+        private struct LogFile
         {
             public LogType Type { get; set; }
             public LogTitle Title { get; set; }
             public string Description { get; set; }
         }
 
-        public static class Log
+        private static class Log
         {
             static StringBuilder _builder = new StringBuilder();
             static List<LogFile> _errorList = new List<LogFile>();
@@ -3686,59 +3944,60 @@ namespace IngameScript
                 _infoList.Clear();
             }
 
-            public static void Error(string text, LogTitle title = LogTitle.None, LogType type = LogType.Info)
+            public static void Error(string text, LogTitle title = LogTitle.None)
             {
-                 _errorList.Add(new LogFile{Description = text, Title = title, Type = type});
+                 _errorList.Add(new LogFile{Description = text, Title = title, Type = LogType.Error});
             }
 
-            public static void Warn(string text, LogTitle title = LogTitle.None, LogType type = LogType.Info)
+            public static void Warn(string text, LogTitle title = LogTitle.None)
             {
-                _warningList.Add(new LogFile{Description = text, Title = title, Type = type});
+                _warningList.Add(new LogFile{Description = text, Title = title, Type = LogType.Warn});
             }
 
-            public static void Info(string text, LogTitle title = LogTitle.None, LogType type = LogType.Info)
+            public static void Info(string text, LogTitle title = LogTitle.None)
             {
-                _infoList.Add(new LogFile{Description = text, Title = title, Type = type});
+                _infoList.Add(new LogFile{Description = text, Title = title, Type = LogType.Info});
             }
 
 
             public static string Write(LogType type = LogType.Info, LogTitle title = LogTitle.None, bool preserveLog = false)
             {
 
-                if (_errorList.Count != 0 && _warningList.Count != 0 && _infoList.Count != 0)
+                if (_errorList.Count + _warningList.Count + _infoList.Count > 0)
                     WriteLine("");
-
 
                 switch (type)
                 {
                     case LogType.Info:
                     {
-                        if (_infoList.Count != 0)
+                        if (_infoList.Count > 0)
                         {
-                            for (int i = 0; i < _infoList.Count; i++)
+                            var infoList = _infoList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+
+                                for (int i = 0; i < infoList.Count; i++)
                             {
                                 if (title > LogTitle.None)
                                 {
                                     switch (title)
                                     {
                                         case LogTitle.Power:
-                                            if (_infoList[i].Title != LogTitle.Power) continue;
+                                            if (infoList[i].Title != LogTitle.Power) continue;
                                             WriteElement(i+1,LogType.Info,LogTitle.Power,_infoList[i]);
                                             break;
                                         case LogTitle.Production:
-                                            if (_infoList[i].Title != LogTitle.Production) continue;
+                                            if (infoList[i].Title != LogTitle.Production) continue;
                                             WriteElement(i+1,LogType.Info,LogTitle.Production,_infoList[i]);
                                             break;
                                         case LogTitle.Navigation:
-                                            if (_infoList[i].Title != LogTitle.Navigation) continue;
+                                            if (infoList[i].Title != LogTitle.Navigation) continue;
                                             WriteElement(i+1,LogType.Info,LogTitle.Navigation,_infoList[i]);
                                             break;
                                         case LogTitle.Damages:
-                                            if (_infoList[i].Title != LogTitle.Damages) continue;
+                                            if (infoList[i].Title != LogTitle.Damages) continue;
                                             WriteElement(i+1,LogType.Info,LogTitle.Damages,_infoList[i]);
                                             break;
                                         case LogTitle.Combat:
-                                            if (_infoList[i].Title != LogTitle.Combat) continue;
+                                            if (infoList[i].Title != LogTitle.Combat) continue;
                                             WriteElement(i+1,LogType.Info,LogTitle.Combat,_infoList[i]);
                                             break;
                                         default:
@@ -3756,42 +4015,45 @@ namespace IngameScript
                     }
                     case LogType.Warn:
                     {
-                        if (_warningList.Count != 0)
+
+                        if (_warningList.Count > 0)
                         {
-                            for (int i = 0; i < _warningList.Count; i++)
+                            var warnList = _warningList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+
+                                for (int i = 0; i < warnList.Count; i++)
                             {
                                 if (title > LogTitle.None)
                                 {
                                     switch (title)
                                     {
                                         case LogTitle.Power:
-                                            if (_warningList[i].Title != LogTitle.Power) continue;
+                                            if (warnList[i].Title != LogTitle.Power) continue;
                                             WriteElement(i+1,LogType.Warn,LogTitle.Power,_warningList[i]);
                                             break;
                                         case LogTitle.Production:
-                                            if (_warningList[i].Title != LogTitle.Production) continue;
+                                            if (warnList[i].Title != LogTitle.Production) continue;
                                             WriteElement(i+1,LogType.Warn,LogTitle.Production,_warningList[i]);
                                             break;
                                         case LogTitle.Navigation:
-                                            if (_warningList[i].Title != LogTitle.Navigation) continue;
+                                            if (warnList[i].Title != LogTitle.Navigation) continue;
                                             WriteElement(i+1,LogType.Warn,LogTitle.Navigation,_warningList[i]);
                                             break;
                                         case LogTitle.Damages:
-                                            if (_warningList[i].Title != LogTitle.Damages) continue;
+                                            if (warnList[i].Title != LogTitle.Damages) continue;
                                             WriteElement(i+1,LogType.Warn,LogTitle.Damages,_warningList[i]);
                                             break;
                                         case LogTitle.Combat:
-                                            if (_warningList[i].Title != LogTitle.Combat) continue;
+                                            if (warnList[i].Title != LogTitle.Combat) continue;
                                             WriteElement(i+1,LogType.Warn,LogTitle.Combat,_warningList[i]);
                                             break;
                                         default:
-                                            WriteElement(i + 1, LogType.Warn, _warningList[i]);
+                                            WriteElement(i + 1, LogType.Warn, warnList[i]);
                                             break;
                                     }
                                     continue;
                                 }
 
-                                WriteElement(i + 1, LogType.Warn, _warningList[i]);
+                                WriteElement(i + 1, LogType.Warn, warnList[i]);
                                 //if (i < _infoList.Count - 1)
                             }
                         }
@@ -3799,43 +4061,45 @@ namespace IngameScript
                     }
                     case LogType.Error:
                     {
-                        if (_errorList.Count != 0)
+                        if (_errorList.Count > 0)
                         {
-                            for (int i = 0; i < _errorList.Count; i++)
+                            var errorList = _errorList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+
+                                for (int i = 0; i < errorList.Count; i++)
                             {
                                 if (title > LogTitle.None)
                                 {
                                     switch (title)
                                     {
                                         case LogTitle.Power:
-                                            if (_errorList[i].Title != LogTitle.Power) continue;
+                                            if (errorList[i].Title != LogTitle.Power) continue;
                                             WriteElement(i+1,LogType.Error,LogTitle.Power,_errorList[i]);
                                             break;
                                         case LogTitle.Production:
-                                            if (_errorList[i].Title != LogTitle.Production) continue;
+                                            if (errorList[i].Title != LogTitle.Production) continue;
                                             WriteElement(i+1,LogType.Error,LogTitle.Production,_errorList[i]);
                                             break;
                                         case LogTitle.Navigation:
-                                            if (_errorList[i].Title != LogTitle.Navigation) continue;
+                                            if (errorList[i].Title != LogTitle.Navigation) continue;
                                             WriteElement(i+1,LogType.Error,LogTitle.Navigation,_errorList[i]);
                                             break;
                                         case LogTitle.Damages:
-                                            if (_errorList[i].Title != LogTitle.Damages) continue;
+                                            if (errorList[i].Title != LogTitle.Damages) continue;
                                             WriteElement(i+1,LogType.Error,LogTitle.Damages,_errorList[i]);
                                             break;
                                         case LogTitle.Combat:
-                                            if (_errorList[i].Title != LogTitle.Combat) continue;
+                                            if (errorList[i].Title != LogTitle.Combat) continue;
                                             WriteElement(i+1,LogType.Error,LogTitle.Combat,_errorList[i]);
                                             break;
                                         default:
-                                            WriteElement(i + 1, LogType.Error, _errorList[i]);
+                                            WriteElement(i + 1, LogType.Error, errorList[i]);
                                             break;
 
                                     }
                                     continue;
                                 }
 
-                                WriteElement(i + 1, LogType.Error, _errorList[i]);
+                                WriteElement(i + 1, LogType.Error, errorList[i]);
                                 //if (i < _infoList.Count - 1)
                             }
                         }
@@ -3846,9 +4110,10 @@ namespace IngameScript
                     {
                         if (_infoList.Count != 0)
                         {
-                            for (int i = 0; i < _infoList.Count; i++)
+                            var infoList = _infoList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+                            for (int i = 0; i < infoList.Count; i++)
                             {
-                                WriteElement(i + 1, LogType.Info, _infoList[i]);
+                                WriteElement(i + 1, LogType.Info, infoList[i]);
                                 //if (i < _infoList.Count - 1)
                             }
                         }
@@ -3866,32 +4131,40 @@ namespace IngameScript
 
             public static string Write(bool preserveLog = false)
             {
-                if (_errorList.Count != 0 && _warningList.Count != 0 && _infoList.Count != 0)
+
+                if (_errorList.Count + _warningList.Count + _infoList.Count > 0)
                     WriteLine("");
+
 
                 if (_errorList.Count != 0)
                 {
-                    for (int i = 0; i < _errorList.Count; i++)
+                    var errorList = _errorList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+
+                    for (int i = 0; i < errorList.Count; i++)
                     {
-                        WriteElement(i + 1, LogType.Error, _errorList[i]);
+                        WriteElement(i + 1, LogType.Error, errorList[i]);
                         //if (i < _errorList.Count - 1)
                     }
                 }
 
                 if (_warningList.Count != 0)
                 {
-                    for (int i = 0; i < _warningList.Count; i++)
+                    var warnList = _warningList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+
+                    for (int i = 0; i < warnList.Count; i++)
                     {
-                        WriteElement(i + 1, LogType.Warn, _warningList[i]);
+                        WriteElement(i + 1, LogType.Warn, warnList[i]);
                         //if (i < _warningList.Count - 1)
                     }
                 }
 
                 if (_infoList.Count != 0)
                 {
-                    for (int i = 0; i < _infoList.Count; i++)
+                    var infoList = _infoList.GroupBy(x => x.Description).Select(i => i.FirstOrDefault()).ToList();
+
+                    for (int i = 0; i < infoList.Count; i++)
                     {
-                        WriteElement(i + 1, LogType.Info, _infoList[i]);
+                        WriteElement(i + 1, LogType.Info, infoList[i]);
                         //if (i < _infoList.Count - 1)
                     }
                 }
@@ -4102,28 +4375,31 @@ namespace IngameScript
             var start = (int) (startProportion * _textPanels.Count);
             var end = (int) (endProportion * _textPanels.Count);
 
-            for (var i = start; i < end; i++)
+            lock (_textPanels)
             {
-                var panel = _textPanels[i];
-                if (SkipBlock(panel) || !StringContains(panel.CustomName, "Cerebro"))continue;
-                panel.ContentType = ContentType.TEXT_AND_IMAGE;
-                panel.Enabled = true;
-                if (StringContains(panel.CustomName, "Damage"))
+                for (var i = start; i < end; i++)
                 {
-                    panel.WriteText(Log.Write(LogType.Warn, LogTitle.Damages));
-                    continue;
-                }
-                if (StringContains(panel.CustomName, "Status"))
-                {
-                    panel.WriteText(Log.Write(LogType.Info));
-                    continue;
-                }
-                if (StringContains(panel.CustomName, "Power"))
-                {
-                    panel.WriteText(Log.Write(LogType.Warn,LogTitle.Power));
-                    continue;
-                }
+                    var panel = _textPanels[i];
+                    if (SkipBlock(panel) || !StringContains(panel.CustomName, "Cerebro"))continue;
+                    panel.ContentType = ContentType.TEXT_AND_IMAGE;
+                    panel.Enabled = true;
+                    if (StringContains(panel.CustomName, "Damage"))
+                    {
+                        panel.WriteText(Log.Write(LogType.Warn, LogTitle.Damages));
+                        continue;
+                    }
+                    if (StringContains(panel.CustomName, "Status"))
+                    {
+                        panel.WriteText(Log.Write(LogType.Info));
+                        continue;
+                    }
+                    if (StringContains(panel.CustomName, "Power"))
+                    {
+                        panel.WriteText(Log.Write(LogType.Warn,LogTitle.Power));
+                        continue;
+                    }
 
+                }
             }
 
         }
@@ -4195,14 +4471,14 @@ namespace IngameScript
             NavigationActive
         }
 
-        internal enum LogType
+        private enum LogType
         {
             Info,
             Warn,
             Error
         }
 
-        internal enum LogTitle
+        private enum LogTitle
         { 
             None,
             Power,
@@ -4210,6 +4486,16 @@ namespace IngameScript
             Navigation,
             Damages,
             Combat
+        }
+
+        private enum DroneBehavior
+        {
+            Initiate,
+            Standby,
+            Follow,
+            Patrol,
+            Defend,
+            Attack
         }
         #endregion
 
